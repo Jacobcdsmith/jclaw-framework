@@ -15,8 +15,11 @@ async function callJclaw<TPayload = unknown>(
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
     const cleanup = () => {
+      // @ts-ignore - ws WebSocket implements EventEmitter
       socket.removeAllListeners?.("message");
+      // @ts-ignore
       socket.removeAllListeners?.("error");
+      // @ts-ignore
       socket.removeAllListeners?.("open");
     };
 
@@ -82,6 +85,62 @@ export function buildJclawCli() {
         console.log(JSON.stringify(payload.sessions, null, 2));
       } catch (err) {
         console.error("[JCLAW] sessions:list failed", err);
+        process.exitCode = 1;
+      }
+    });
+
+  program
+    .command("sessions:start")
+    .description("Start a new JCLaw session via the gateway")
+    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("--label <label>", "Session label")
+    .option("--channel <channel>", "Source channel identifier")
+    .option("--group <groupId>", "Group identifier")
+    .option("--model <model>", "Model name or alias")
+    .action(async (opts) => {
+      const port = Number(opts.port ?? 18789);
+      const params: Record<string, unknown> = {};
+      if (opts.label) params.label = opts.label;
+      if (opts.channel) params.channel = opts.channel;
+      if (opts.group) params.groupId = opts.group;
+      if (opts.model) params.model = opts.model;
+
+      try {
+        const payload = await callJclaw<{ session: unknown }>(
+          "sessions.start",
+          params,
+          port
+        );
+        console.log(JSON.stringify(payload.session, null, 2));
+      } catch (err) {
+        console.error("[JCLAW] sessions:start failed", err);
+        process.exitCode = 1;
+      }
+    });
+
+  program
+    .command("agent:echo")
+    .description("Send a text to the JCLaw agent (echo proto) and track a session")
+    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("--session <sessionId>", "Existing session id (optional)")
+    .requiredOption("-m, --message <text>", "Input text for the agent")
+    .action(async (opts) => {
+      const port = Number(opts.port ?? 18789);
+      const params = {
+        sessionId: opts.session as string | undefined,
+        input: opts.message as string
+      };
+      try {
+        const payload = await callJclaw<{
+          session: unknown;
+          output: string;
+        }>("agent.echo", params, port);
+        console.log("Output:");
+        console.log(payload.output);
+        console.log("Session:");
+        console.log(JSON.stringify(payload.session, null, 2));
+      } catch (err) {
+        console.error("[JCLAW] agent:echo failed", err);
         process.exitCode = 1;
       }
     });

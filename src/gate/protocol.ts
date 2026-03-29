@@ -2,7 +2,8 @@ import type { WebSocket } from "ws";
 import { Type } from "@sinclair/typebox";
 import type { Static } from "@sinclair/typebox";
 import type { JclawPluginRegistry } from "../plugins/registry.js";
-import type { JclawSessionStore } from "./sessions.js";
+import type { JclawSessionStore, JclawSessionEntry } from "./sessions.js";
+import { runJclawAgent } from "../agent/runtime.js";
 
 export const RequestFrame = Type.Object({
   type: Type.Literal("req"),
@@ -35,6 +36,10 @@ export interface ProtocolContext {
   plugins: JclawPluginRegistry;
 }
 
+function makeSessionId(): string {
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 async function handleRequest(
   ctx: ProtocolContext,
   req: RequestFrameT
@@ -56,6 +61,92 @@ async function handleRequest(
         id: req.id,
         ok: true,
         payload: { sessions }
+      };
+    }
+
+    case "sessions.start": {
+      const p = (req.params ?? {}) as {
+        label?: string;
+        channel?: string;
+        groupId?: string;
+        model?: string;
+      };
+
+      const sessionId = makeSessionId();
+      const entry: JclawSessionEntry = {
+        sessionId,
+        updatedAt: Date.now(),
+        label: p.label,
+        channel: p.channel,
+        groupId: p.groupId,
+        status: "running",
+        model: p.model,
+        inputTokens: 0,
+        outputTokens: 0,
+        estimatedCostUsd: 0,
+        lastChannel: p.channel,
+        lastTo: undefined
+      };
+
+      ctx.sessions.upsert(entry);
+
+      return {
+        type: "res",
+        id: req.id,
+        ok: true,
+        payload: { session: entry }
+      };
+    }
+
+    case "agent.echo": {
+      const p = (req.params ?? {}) as {
+        sessionId?: string;
+        input?: string;
+      };
+
+      if (!p.input || typeof p.input !== "string") {
+        return {
+          type: "res",
+          id: req.id,
+          ok: false,
+          error: "agent.echo requires a string 'input' parameter"
+        };
+      }
+
+      const sessionId = p.sessionId || makeSessionId();
+      const existing = ctx.sessions.get(sessionId);
+
+      const base: JclawSessionEntry = existing ?? {
+        sessionId,
+        updatedAt: Date.now(),
+        status: "running",
+        inputTokens: 0,
+        outputTokens: 0,
+        estimatedCostUsd: 0,
+        label: undefined,
+        channel: undefined,
+        groupId: undefined,
+        model: undefined,
+        lastChannel: undefined,
+        lastTo: undefined
+      };
+
+      const output = await runJclawAgent({ sessionId, input: p.input });
+
+      const updated: JclawSessionEntry = {
+        ...base,
+        updatedAt: Date.now(),
+        inputTokens: base.inputTokens + p.input.length,
+        outputTokens: base.outputTokens + output.length
+      };
+
+      ctx.sessions.upsert(updated);
+
+      return {
+        type: "res",
+        id: req.id,
+        ok: true,
+        payload: { session: updated, output }
       };
     }
 
