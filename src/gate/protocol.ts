@@ -35,6 +35,41 @@ export interface ProtocolContext {
   plugins: JclawPluginRegistry;
 }
 
+async function handleRequest(
+  ctx: ProtocolContext,
+  req: RequestFrameT
+): Promise<ResponseFrameT> {
+  switch (req.method) {
+    case "ping": {
+      return {
+        type: "res",
+        id: req.id,
+        ok: true,
+        payload: { pong: true, params: req.params ?? null }
+      };
+    }
+
+    case "sessions.list": {
+      const sessions = ctx.sessions.list();
+      return {
+        type: "res",
+        id: req.id,
+        ok: true,
+        payload: { sessions }
+      };
+    }
+
+    default: {
+      return {
+        type: "res",
+        id: req.id,
+        ok: false,
+        error: `Unknown method: ${req.method}`
+      };
+    }
+  }
+}
+
 export function handleWsConnection(ctx: ProtocolContext) {
   ctx.socket.on("message", async (raw) => {
     let frame: unknown;
@@ -46,14 +81,22 @@ export function handleWsConnection(ctx: ProtocolContext) {
     }
 
     const maybeReq = frame as Partial<RequestFrameT>;
-    if (maybeReq.type === "req" && maybeReq.id) {
-      const res: ResponseFrameT = {
+    if (maybeReq.type !== "req" || !maybeReq.id || !maybeReq.method) {
+      console.error("[JCLAW] received non-request frame", frame);
+      return;
+    }
+
+    try {
+      const res = await handleRequest(ctx, maybeReq as RequestFrameT);
+      ctx.socket.send(JSON.stringify(res));
+    } catch (err) {
+      const fallback: ResponseFrameT = {
         type: "res",
         id: maybeReq.id,
-        ok: true,
-        payload: { echo: maybeReq }
+        ok: false,
+        error: err instanceof Error ? err.message : "Internal error"
       };
-      ctx.socket.send(JSON.stringify(res));
+      ctx.socket.send(JSON.stringify(fallback));
     }
   });
 }
