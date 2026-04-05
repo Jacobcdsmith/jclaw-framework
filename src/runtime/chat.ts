@@ -24,16 +24,18 @@ export interface ChatRuntime {
   providers: ProviderRegistry;
 }
 
+// ---------------------------------------------------------------------------
+// Send
+// ---------------------------------------------------------------------------
+
 export interface SendParams {
   sessionId: string;
   content: string;
   role?: "user" | "assistant";
-  /** Override model for this message only: "provider:model" or just model name. */
   modelSpec?: string;
   temperature?: number;
   maxTokens?: number;
   systemPromptOverride?: string;
-  /** Pipe output to targets after generation. */
   pipeTargets?: PipeTarget[];
 }
 
@@ -43,33 +45,18 @@ export interface SendResult {
   pipeResults?: PipeResult[];
 }
 
-export interface ForkParams {
-  sourceSessionId: string;
-  branchPointMsgId: string;
-  label?: string;
-  /** If provided, immediately send this message in the new fork. */
-  sendParams?: Omit<SendParams, "sessionId">;
-}
+function resolveProvider(rt: ChatRuntime, session: SessionRow, modelSpec?: string) {
+  let provider = rt.providers.get((session.provider as ProviderName) ?? "anthropic");
+  let model = session.model ?? provider?.defaultModel ?? "claude-sonnet-4-6";
 
-export interface ForkResult {
-  session: SessionRow;
-  copiedMessages: MessageRow[];
-  sendResult?: SendResult;
-}
+  if (modelSpec) {
+    const resolved = resolveProviderAndModel(modelSpec);
+    provider = rt.providers.getOrThrow(resolved.provider);
+    model = resolved.model;
+  }
 
-export interface RegenerateParams {
-  sessionId: string;
-  assistantMsgId: string;
-  modelSpec?: string;
-  temperature?: number;
-  maxTokens?: number;
-  diffMode?: DiffMode;
-}
-
-export interface RegenerateResult {
-  original: MessageRow;
-  regenerated: MessageRow;
-  diff: DiffResult;
+  if (!provider) throw new Error("No provider configured");
+  return { provider, model };
 }
 
 export async function sendMessage(
@@ -79,18 +66,24 @@ export async function sendMessage(
   const session = getSession(params.sessionId);
   if (!session) throw new Error(`Session not found: ${params.sessionId}`);
 
-  let provider = rt.providers.get(
-    (session.provider as ProviderName) ?? "anthropic"
-  );
-  let model = session.model ?? provider?.defaultModel ?? "claude-sonnet-4-6";
-
-  if (params.modelSpec) {
-    const resolved = resolveProviderAndModel(params.modelSpec);
-    provider = rt.providers.getOrThrow(resolved.provider);
-    model = resolved.model;
+  // Cost ceiling check
+  if (session.cost_ceiling_usd !== null) {
+    if (session.estimated_cost_usd >= session.cost_ceiling_usd) {
+      throw new Error(
+        `Cost ceiling reached: $${session.estimated_cost_usd.toFixed(4)} >= $${session.cost_ceiling_usd.toFixed(4)}`
+      );
+    }
   }
 
-  if (!provider) throw new Error("No provider configured");
+  const { provider, model } = resolveProvider(rt, session, params.modelSpec);
+
+  // Auto-summarize check
+  if (session.summarize_at_pct !== null) {
+    const budget = getContextBudget(model, getContextTokenCount(params.sessionId));
+    if (budget.pct >= session.summarize_at_pct) {
+      await summarizeSession(rt, params.sessionId, model, provider.name as ProviderName);
+    }
+  }
 
   const history = getSessionMessages(params.sessionId);
 
@@ -108,7 +101,6 @@ export async function sendMessage(
     maxTokens: params.maxTokens,
     systemPromptOverride: params.systemPromptOverride
   });
-
   req.model = model;
 
   const resp = await provider.chat(req);
@@ -125,46 +117,133 @@ export async function sendMessage(
     finish_reason: resp.finishReason
   });
 
-  accumulateTokens(
-    params.sessionId,
-    resp.inputTokens,
-    resp.outputTokens,
-    resp.estimatedCostUsd
-  );
+  accumulateTokens(params.sessionId, resp.inputTokens, resp.outputTokens, resp.estimatedCostUsd);
 
-  let pipeResults: PipeResult[] | undefined;
-  if (params.pipeTargets?.length) {
-    pipeResults = await pipeOutput(resp.content, params.pipeTargets);
-  }
+  const pipeResults = params.pipeTargets?.length
+    ? await pipeOutput(resp.content, params.pipeTargets)
+    : undefined;
 
   return { userMessage, assistantMessage, pipeResults };
 }
 
-export async function forkAndSend(
-  rt: ChatRuntime,
-  params: ForkParams
-): Promise<ForkResult> {
-  const newSession = forkSession(
-    params.sourceSessionId,
-    params.branchPointMsgId,
-    params.label
-  );
+// ---------------------------------------------------------------------------
+// Stream
+// ---------------------------------------------------------------------------
 
+export interface StreamParams extends SendParams {
+  onToken: (token: string) => void;
+}
+
+export async function sendMessageStream(
+  rt: ChatRuntime,
+  params: StreamParams
+): Promise<SendResult> {
+  const session = getSession(params.sessionId);
+  if (!session) throw new Error(`Session not found: ${params.sessionId}`);
+
+  if (session.cost_ceiling_usd !== null && session.estimated_cost_usd >= session.cost_ceiling_usd) {
+    throw new Error(`Cost ceiling reached: $${session.estimated_cost_usd.toFixed(4)}`);
+  }
+
+  const { provider, model } = resolveProvider(rt, session, params.modelSpec);
+
+  if (!provider.chatStream) {
+    // Fallback: non-streaming, emit whole content as single token
+    const result = await sendMessage(rt, params);
+    params.onToken(result.assistantMessage.content);
+    return result;
+  }
+
+  const history = getSessionMessages(params.sessionId);
+
+  const userMessage = addMessage({
+    session_id: params.sessionId,
+    role: params.role ?? "user",
+    content: params.content,
+    temperature: params.temperature
+  });
+
+  const req = buildChatRequest(session, history, {
+    content: params.content,
+    role: params.role ?? "user",
+    temperature: params.temperature,
+    maxTokens: params.maxTokens,
+    systemPromptOverride: params.systemPromptOverride
+  });
+  req.model = model;
+
+  const resp = await provider.chatStream(req, params.onToken);
+
+  const assistantMessage = addMessage({
+    session_id: params.sessionId,
+    role: "assistant",
+    content: resp.content,
+    model: resp.model,
+    provider: resp.provider,
+    input_tokens: resp.inputTokens,
+    output_tokens: resp.outputTokens,
+    temperature: params.temperature,
+    finish_reason: resp.finishReason
+  });
+
+  accumulateTokens(params.sessionId, resp.inputTokens, resp.outputTokens, resp.estimatedCostUsd);
+
+  const pipeResults = params.pipeTargets?.length
+    ? await pipeOutput(resp.content, params.pipeTargets)
+    : undefined;
+
+  return { userMessage, assistantMessage, pipeResults };
+}
+
+// ---------------------------------------------------------------------------
+// Fork
+// ---------------------------------------------------------------------------
+
+export interface ForkParams {
+  sourceSessionId: string;
+  branchPointMsgId: string;
+  label?: string;
+  sendParams?: Omit<SendParams, "sessionId">;
+}
+
+export interface ForkResult {
+  session: SessionRow;
+  copiedMessages: MessageRow[];
+  sendResult?: SendResult;
+}
+
+export async function forkAndSend(rt: ChatRuntime, params: ForkParams): Promise<ForkResult> {
+  const newSession = forkSession(params.sourceSessionId, params.branchPointMsgId, params.label);
   const copiedMessages = copyMessagesToFork(
     params.sourceSessionId,
     newSession.id,
     params.branchPointMsgId
   );
 
-  let sendResult: SendResult | undefined;
-  if (params.sendParams) {
-    sendResult = await sendMessage(rt, {
-      ...params.sendParams,
-      sessionId: newSession.id
-    });
-  }
+  const sendResult = params.sendParams
+    ? await sendMessage(rt, { ...params.sendParams, sessionId: newSession.id })
+    : undefined;
 
   return { session: newSession, copiedMessages, sendResult };
+}
+
+// ---------------------------------------------------------------------------
+// Regenerate
+// ---------------------------------------------------------------------------
+
+export interface RegenerateParams {
+  sessionId: string;
+  assistantMsgId: string;
+  modelSpec?: string;
+  temperature?: number;
+  maxTokens?: number;
+  diffMode?: DiffMode;
+}
+
+export interface RegenerateResult {
+  original: MessageRow;
+  regenerated: MessageRow;
+  diff: DiffResult;
 }
 
 export async function regenerateMessage(
@@ -177,29 +256,16 @@ export async function regenerateMessage(
     .get(params.assistantMsgId) as MessageRow | undefined;
 
   if (!original) throw new Error(`Message not found: ${params.assistantMsgId}`);
-  if (original.role !== "assistant")
-    throw new Error("Can only regenerate assistant messages");
+  if (original.role !== "assistant") throw new Error("Can only regenerate assistant messages");
 
   const session = getSession(original.session_id);
   if (!session) throw new Error(`Session not found: ${original.session_id}`);
 
-  // Get history up to (not including) the original assistant message
   const allMessages = getSessionMessages(original.session_id);
   const idx = allMessages.findIndex((m) => m.id === original.id);
   const historyUpToUser = allMessages.slice(0, idx);
 
-  let provider = rt.providers.get(
-    (session.provider as ProviderName) ?? "anthropic"
-  );
-  let model = session.model ?? provider?.defaultModel ?? "claude-sonnet-4-6";
-
-  if (params.modelSpec) {
-    const resolved = resolveProviderAndModel(params.modelSpec);
-    provider = rt.providers.getOrThrow(resolved.provider);
-    model = resolved.model;
-  }
-
-  if (!provider) throw new Error("No provider configured");
+  const { provider, model } = resolveProvider(rt, session, params.modelSpec);
 
   const lastUser = historyUpToUser.findLast((m) => m.role === "user");
   if (!lastUser) throw new Error("No user message to regenerate from");
@@ -210,7 +276,6 @@ export async function regenerateMessage(
     temperature: params.temperature,
     maxTokens: params.maxTokens
   });
-
   req.model = model;
 
   const resp = await provider.chat(req);
@@ -227,21 +292,140 @@ export async function regenerateMessage(
     finish_reason: resp.finishReason
   });
 
-  accumulateTokens(
-    original.session_id,
-    resp.inputTokens,
-    resp.outputTokens,
-    resp.estimatedCostUsd
-  );
+  accumulateTokens(original.session_id, resp.inputTokens, resp.outputTokens, resp.estimatedCostUsd);
 
-  const diff = diffResponses(
-    original.content,
-    regenerated.content,
-    params.diffMode ?? "words"
-  );
-
-  return { original, regenerated, diff };
+  return {
+    original,
+    regenerated,
+    diff: diffResponses(original.content, regenerated.content, params.diffMode ?? "words")
+  };
 }
+
+// ---------------------------------------------------------------------------
+// Parallel compare
+// ---------------------------------------------------------------------------
+
+export interface CompareParams {
+  sessionId: string;
+  content: string;
+  modelSpecs: string[];       // e.g. ["claude-sonnet-4-6", "openai:gpt-4o"]
+  temperature?: number;
+  maxTokens?: number;
+}
+
+export interface CompareEntry {
+  modelSpec: string;
+  model: string;
+  provider: string;
+  content: string;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCostUsd: number;
+}
+
+export interface CompareResult {
+  prompt: string;
+  results: CompareEntry[];
+  /** Diff between adjacent pairs (results[0] vs results[1], etc.) */
+  diffs: Array<{ a: string; b: string; diff: DiffResult }>;
+}
+
+export async function compareModels(
+  rt: ChatRuntime,
+  params: CompareParams
+): Promise<CompareResult> {
+  const session = getSession(params.sessionId);
+  if (!session) throw new Error(`Session not found: ${params.sessionId}`);
+
+  const history = getSessionMessages(params.sessionId);
+
+  const results = await Promise.all(
+    params.modelSpecs.map(async (spec): Promise<CompareEntry> => {
+      const resolved = resolveProviderAndModel(spec);
+      const provider = rt.providers.getOrThrow(resolved.provider);
+      const req = buildChatRequest(session, history, {
+        content: params.content,
+        temperature: params.temperature,
+        maxTokens: params.maxTokens
+      });
+      req.model = resolved.model;
+
+      const resp = await provider.chat(req);
+      return {
+        modelSpec: spec,
+        model: resp.model,
+        provider: resp.provider,
+        content: resp.content,
+        inputTokens: resp.inputTokens,
+        outputTokens: resp.outputTokens,
+        estimatedCostUsd: resp.estimatedCostUsd
+      };
+    })
+  );
+
+  const diffs = results.slice(0, -1).map((a, i) => ({
+    a: params.modelSpecs[i],
+    b: params.modelSpecs[i + 1],
+    diff: diffResponses(a.content, results[i + 1].content, "words")
+  }));
+
+  return { prompt: params.content, results, diffs };
+}
+
+// ---------------------------------------------------------------------------
+// Auto-summarize
+// ---------------------------------------------------------------------------
+
+export async function summarizeSession(
+  rt: ChatRuntime,
+  sessionId: string,
+  model: string,
+  providerName: ProviderName
+): Promise<MessageRow> {
+  const messages = getSessionMessages(sessionId, { excludeSummaries: true });
+  const unpinned = messages.filter((m) => m.pinned === 0 && m.role !== "system");
+
+  if (unpinned.length < 4) return addMessage({
+    session_id: sessionId,
+    role: "system",
+    content: "[Nothing to summarize yet]",
+    is_summary: true
+  });
+
+  const transcript = unpinned
+    .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
+    .join("\n\n");
+
+  const provider = rt.providers.getOrThrow(providerName);
+  const resp = await provider.chat({
+    model,
+    systemPrompt:
+      "You are a conversation summarizer. Given the transcript below, write a concise third-person summary of what was discussed, preserving key decisions, facts, and conclusions. Be brief.",
+    maxTokens: 512,
+    temperature: 0.3,
+    messages: [{ role: "user" as const, content: `Summarize this conversation:\n\n${transcript}` }]
+  });
+
+  // Mark old unpinned messages as archived in-place by inserting the summary
+  // (we don't delete rows — they remain for export, search, history)
+  const summaryMsg = addMessage({
+    session_id: sessionId,
+    role: "system",
+    content: `[Auto-summary]\n${resp.content}`,
+    model,
+    provider: providerName,
+    input_tokens: resp.inputTokens,
+    output_tokens: resp.outputTokens,
+    is_summary: true
+  });
+
+  accumulateTokens(sessionId, resp.inputTokens, resp.outputTokens, resp.estimatedCostUsd);
+  return summaryMsg;
+}
+
+// ---------------------------------------------------------------------------
+// Misc helpers
+// ---------------------------------------------------------------------------
 
 export function getContextStatus(sessionId: string, model: string) {
   const used = getContextTokenCount(sessionId);

@@ -14,6 +14,8 @@ export interface SessionRow {
   estimated_cost_usd: number;
   temperature: number | null;
   max_tokens: number | null;
+  cost_ceiling_usd: number | null;
+  summarize_at_pct: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -28,6 +30,8 @@ export interface CreateSessionParams {
   system_prompt?: string;
   temperature?: number;
   max_tokens?: number;
+  cost_ceiling_usd?: number;
+  summarize_at_pct?: number;
 }
 
 export function createSession(params: CreateSessionParams = {}): SessionRow {
@@ -35,14 +39,12 @@ export function createSession(params: CreateSessionParams = {}): SessionRow {
   const id = params.id ?? generateId();
   const now = Date.now();
 
-  const stmt = db.prepare(`
+  db.prepare(`
     INSERT INTO sessions (id, label, model, provider, parent_id, branch_point_msg_id,
       system_prompt, status, input_tokens, output_tokens, estimated_cost_usd,
-      temperature, max_tokens, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 0, 0, 0, ?, ?, ?, ?)
-  `);
-
-  stmt.run(
+      temperature, max_tokens, cost_ceiling_usd, summarize_at_pct, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 0, 0, 0, ?, ?, ?, ?, ?, ?)
+  `).run(
     id,
     params.label ?? null,
     params.model ?? null,
@@ -52,6 +54,8 @@ export function createSession(params: CreateSessionParams = {}): SessionRow {
     params.system_prompt ?? null,
     params.temperature ?? null,
     params.max_tokens ?? null,
+    params.cost_ceiling_usd ?? null,
+    params.summarize_at_pct ?? null,
     now,
     now
   );
@@ -88,6 +92,8 @@ export function updateSession(
       | "input_tokens"
       | "output_tokens"
       | "estimated_cost_usd"
+      | "cost_ceiling_usd"
+      | "summarize_at_pct"
     >
   >
 ): void {
@@ -119,7 +125,6 @@ export function accumulateTokens(
     .run(inputTokens, outputTokens, costUsd, Date.now(), sessionId);
 }
 
-/** Fork a session at a given message, returning the new session. */
 export function forkSession(
   sourceSessionId: string,
   branchPointMsgId: string,
@@ -136,7 +141,9 @@ export function forkSession(
     branch_point_msg_id: branchPointMsgId,
     system_prompt: source.system_prompt ?? undefined,
     temperature: source.temperature ?? undefined,
-    max_tokens: source.max_tokens ?? undefined
+    max_tokens: source.max_tokens ?? undefined,
+    cost_ceiling_usd: source.cost_ceiling_usd ?? undefined,
+    summarize_at_pct: source.summarize_at_pct ?? undefined
   });
 }
 
@@ -146,4 +153,63 @@ export function getSessionBranches(sessionId: string): SessionRow[] {
       "SELECT * FROM sessions WHERE parent_id = ? ORDER BY created_at ASC"
     )
     .all(sessionId) as SessionRow[];
+}
+
+export function getSessionStats(sessionId?: string): {
+  sessionCount: number;
+  messageCount: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCostUsd: number;
+  perProvider: Record<string, { messages: number; inputTokens: number; outputTokens: number }>;
+} {
+  const db = getDb();
+
+  const sessionFilter = sessionId ? "WHERE s.id = ?" : "";
+  const msgFilter = sessionId ? "WHERE m.session_id = ?" : "";
+  const args = sessionId ? [sessionId] : [];
+
+  const agg = db.prepare(`
+    SELECT COUNT(*) as sessionCount,
+           COALESCE(SUM(input_tokens), 0) as totalInput,
+           COALESCE(SUM(output_tokens), 0) as totalOutput,
+           COALESCE(SUM(estimated_cost_usd), 0) as totalCost
+    FROM sessions s ${sessionFilter}
+  `).get(...args) as {
+    sessionCount: number;
+    totalInput: number;
+    totalOutput: number;
+    totalCost: number;
+  };
+
+  const msgCount = (db.prepare(`SELECT COUNT(*) as c FROM messages m ${msgFilter}`)
+    .get(...args) as { c: number }).c;
+
+  const byProvider = db.prepare(`
+    SELECT provider,
+           COUNT(*) as messages,
+           COALESCE(SUM(input_tokens), 0) as inputTokens,
+           COALESCE(SUM(output_tokens), 0) as outputTokens
+    FROM messages m ${msgFilter}
+    WHERE provider IS NOT NULL
+    GROUP BY provider
+  `).all(...args) as { provider: string; messages: number; inputTokens: number; outputTokens: number }[];
+
+  const perProvider: Record<string, { messages: number; inputTokens: number; outputTokens: number }> = {};
+  for (const row of byProvider) {
+    perProvider[row.provider] = {
+      messages: row.messages,
+      inputTokens: row.inputTokens,
+      outputTokens: row.outputTokens
+    };
+  }
+
+  return {
+    sessionCount: agg.sessionCount,
+    messageCount: msgCount,
+    totalInputTokens: agg.totalInput,
+    totalOutputTokens: agg.totalOutput,
+    totalCostUsd: agg.totalCost,
+    perProvider
+  };
 }

@@ -23,16 +23,22 @@ export interface ChatResponse {
   estimatedCostUsd: number;
 }
 
+/** Token-by-token stream. Each yielded value is a text delta. */
+export type TokenStream = AsyncIterable<string>;
+
 export interface LlmProvider {
   name: ProviderName;
-  /** Human-readable display name. */
   displayName: string;
-  /** Default model for this provider. */
   defaultModel: string;
-  /** List available models (optional; may require network). */
   listModels?(): Promise<string[]>;
-  /** Send a chat completion request. */
   chat(req: ChatRequest): Promise<ChatResponse>;
+  /** Stream tokens. Resolves to the final ChatResponse when the stream ends. */
+  chatStream?(
+    req: ChatRequest,
+    onToken: (token: string) => void
+  ): Promise<ChatResponse>;
+  /** Optional: ping the provider and return latency in ms, or throw on failure. */
+  ping?(): Promise<number>;
 }
 
 export interface ProviderConfig {

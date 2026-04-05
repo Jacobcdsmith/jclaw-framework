@@ -1,5 +1,6 @@
 import type { ChatMessage, ChatRequest } from "../providers/types.js";
 import type { MessageRow } from "../storage/messages.js";
+import { getPinnedMessages } from "../storage/messages.js";
 import type { SessionRow } from "../storage/sessions.js";
 
 export interface ComposerParams {
@@ -12,26 +13,29 @@ export interface ComposerParams {
 
 /**
  * Build a ChatRequest from a session, its message history, and the new input.
- * This is the single place where prompt assembly happens — history + system prompt
- * + new message are all combined here.
+ *
+ * Pinned messages are injected at the top of the history (after the system
+ * prompt, before everything else) so they always appear in context regardless
+ * of how far back they are chronologically.
  */
 export function buildChatRequest(
   session: SessionRow,
   history: MessageRow[],
   params: ComposerParams
 ): ChatRequest {
-  const messages: ChatMessage[] = history.map((m) => ({
-    role: m.role as ChatMessage["role"],
-    content: m.content
-  }));
+  const pinned = getPinnedMessages(session.id).filter(
+    (p) => !history.find((h) => h.id === p.id) // avoid duplication
+  );
 
-  messages.push({
-    role: params.role ?? "user",
-    content: params.content
-  });
+  const allHistory: ChatMessage[] = [
+    ...pinned.map((m) => ({ role: m.role as ChatMessage["role"], content: m.content })),
+    ...history.map((m) => ({ role: m.role as ChatMessage["role"], content: m.content }))
+  ];
+
+  allHistory.push({ role: params.role ?? "user", content: params.content });
 
   return {
-    messages,
+    messages: allHistory,
     model: session.model ?? "claude-sonnet-4-6",
     temperature: params.temperature ?? session.temperature ?? undefined,
     maxTokens: params.maxTokens ?? session.max_tokens ?? undefined,
@@ -40,19 +44,10 @@ export function buildChatRequest(
   };
 }
 
-/**
- * Returns a count-budget object showing how full the context window is.
- * `contextLimit` is best-effort from known model limits.
- */
 export function getContextBudget(
   model: string,
   usedTokens: number
-): {
-  used: number;
-  limit: number;
-  remaining: number;
-  pct: number;
-} {
+): { used: number; limit: number; remaining: number; pct: number } {
   const LIMITS: Record<string, number> = {
     "claude-opus-4-6": 200_000,
     "claude-sonnet-4-6": 200_000,
