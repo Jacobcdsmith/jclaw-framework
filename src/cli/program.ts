@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { WebSocket } from "ws";
 import { startJclawGate } from "../gate/server.js";
 import type { ResponseFrameT } from "../gate/protocol.js";
+import { startRepl } from "./repl.js";
 
 // ---------------------------------------------------------------------------
 // WebSocket RPC
@@ -76,6 +77,23 @@ export function buildJclawCli() {
     .description("Start the jclaw gate server")
     .option("-p, --port <port>", "Port", "18789")
     .action(async (opts) => { await startJclawGate({ port: Number(opts.port) }); });
+
+  // ── repl ──────────────────────────────────────────────────────────────────
+  program.command("repl [sessionId]")
+    .description("Open an interactive session (dash commands for everything else)")
+    .option("-p, --port <port>", "Gateway port", "18789")
+    .action(async (sessionId, opts) => {
+      let sid = sessionId as string | undefined;
+      if (!sid) {
+        // Create a new session if none supplied
+        const r = await callJclaw<{ session: { id: string } }>(
+          "sessions.start", {}, port(opts)
+        );
+        sid = r.session.id;
+        console.log(`new session: ${sid}`);
+      }
+      await startRepl(sid, port(opts));
+    });
 
   // ── sessions ──────────────────────────────────────────────────────────────
   const sessions = program.command("sessions").description("Manage sessions");
@@ -340,6 +358,28 @@ export function buildJclawCli() {
     .action(async (sessionId, opts) => {
       const r = await callJclaw<{ summaryMessage: { content: string } }>("chat.summarize", { sessionId }, port(opts));
       console.log("[summary]"); console.log(r.summaryMessage.content);
+    });
+
+  chat.command("replay <sourceSessionId>")
+    .description("Replay a session's prompts against a different model, producing a parallel session")
+    .option("-p, --port <port>", "Gateway port", "18789")
+    .requiredOption("--model <spec>", "Target model spec (e.g. gpt-4o, ollama:llama3.2)")
+    .option("--label <label>", "Label for the replay session")
+    .action(async (sourceSessionId, opts) => {
+      console.log(`replaying session ${sourceSessionId} → ${opts.model} …`);
+      const r = await callJclaw<{
+        session: { id: string; label: string | null };
+        messageCount: number;
+      }>("chat.replay", {
+        sourceSessionId,
+        targetModelSpec: opts.model,
+        label: opts.label
+      }, port(opts));
+      console.log(`\nreplay complete`);
+      console.log(`session id : ${r.session.id}`);
+      console.log(`label      : ${r.session.label ?? "(none)"}`);
+      console.log(`messages   : ${r.messageCount}`);
+      console.log(`\nview with: jclaw messages ${r.session.id}`);
     });
 
   // ── providers ─────────────────────────────────────────────────────────────

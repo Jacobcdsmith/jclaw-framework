@@ -424,6 +424,76 @@ export async function summarizeSession(
 }
 
 // ---------------------------------------------------------------------------
+// Session Replay
+// ---------------------------------------------------------------------------
+
+export interface ReplayParams {
+  sourceSessionId: string;
+  /** "provider:model" or bare model name */
+  targetModelSpec: string;
+  label?: string;
+}
+
+export interface ReplayResult {
+  session: SessionRow;
+  /** All messages generated in the replay session (user + assistant pairs). */
+  messages: MessageRow[];
+}
+
+/**
+ * Replay a session's user-side prompts against a different model.
+ *
+ * Creates a new child session cloned from the source config (system prompt,
+ * temperature, etc.) but overriding model/provider with targetModelSpec.
+ * Then sends each user message from the source session in order, letting the
+ * new model respond. The original session is untouched.
+ *
+ * Use case: "How would GPT-4o have handled this conversation I had with Claude?"
+ */
+export async function replaySession(
+  rt: ChatRuntime,
+  params: ReplayParams
+): Promise<ReplayResult> {
+  const source = getSession(params.sourceSessionId);
+  if (!source) throw new Error(`Session not found: ${params.sourceSessionId}`);
+
+  const resolved = resolveProviderAndModel(params.targetModelSpec);
+  rt.providers.getOrThrow(resolved.provider); // validate provider exists
+
+  // Create the replay session — child of the source, new model/provider
+  const session = createSession({
+    label:
+      params.label ??
+      `Replay of "${source.label ?? params.sourceSessionId}" → ${params.targetModelSpec}`,
+    model: resolved.model,
+    provider: resolved.provider,
+    parent_id: params.sourceSessionId,
+    system_prompt: source.system_prompt ?? undefined,
+    temperature: source.temperature ?? undefined,
+    max_tokens: source.max_tokens ?? undefined,
+    cost_ceiling_usd: source.cost_ceiling_usd ?? undefined
+  });
+
+  // Collect only user messages from source (no assistant messages)
+  const userMessages = getSessionMessages(params.sourceSessionId).filter(
+    (m) => m.role === "user"
+  );
+
+  // Replay each prompt sequentially so each response informs the next
+  for (const msg of userMessages) {
+    await sendMessage(rt, {
+      sessionId: session.id,
+      content: msg.content,
+      role: "user",
+      modelSpec: params.targetModelSpec
+    });
+  }
+
+  const messages = getSessionMessages(session.id);
+  return { session, messages };
+}
+
+// ---------------------------------------------------------------------------
 // Misc helpers
 // ---------------------------------------------------------------------------
 

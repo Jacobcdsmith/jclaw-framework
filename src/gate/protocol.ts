@@ -10,6 +10,7 @@ import {
   forkAndSend,
   regenerateMessage,
   compareModels,
+  replaySession,
   summarizeSession,
   getContextStatus,
   startSession
@@ -322,6 +323,23 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       const providerName = (session.provider ?? "anthropic") as ProviderName;
       const summaryMsg = await summarizeSession(ctx.runtime, sessionId, model, providerName);
       return ok(req.id, { summaryMessage: summaryMsg });
+    }
+
+    case "chat.replay": {
+      const sourceSessionId = requireStr(req.id, p.sourceSessionId, "sourceSessionId");
+      if (typeof sourceSessionId !== "string") return sourceSessionId;
+      const targetModelSpec = requireStr(req.id, p.targetModelSpec, "targetModelSpec");
+      if (typeof targetModelSpec !== "string") return targetModelSpec;
+
+      const result = await replaySession(ctx.runtime, {
+        sourceSessionId,
+        targetModelSpec,
+        label: str(p.label)
+      });
+      return ok(req.id, {
+        session: result.session,
+        messageCount: result.messages.length
+      });
     }
 
     // ── providers ─────────────────────────────────────────────────────────────
