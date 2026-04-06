@@ -49,5 +49,5 @@ export function mergeWithEnv(config: JclawConfig): ProviderConfig {
 export function maskKey(key: string | undefined): string | null {
   if (!key) return null;
   if (key.length <= 10) return "****";
-  return key.slice(0, 6) + "\u2026" + key.slice(-4);
+  return key.slice(0, 4) + "\u2026" + key.slice(-4);
 }
