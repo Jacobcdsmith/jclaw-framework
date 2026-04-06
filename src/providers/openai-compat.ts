@@ -1,5 +1,6 @@
 import OpenAI from "openai";
-import type { LlmProvider, ChatRequest, ChatResponse, ProviderName } from "./types.js";
+import type { LlmProvider, ChatRequest, ChatResponse, ProviderName, McpToolDefinition } from "./types.js";
+import type { ToolUseBlock } from "./types.js";
 
 export interface OpenAiCompatOptions {
   providerName: ProviderName;
@@ -7,6 +8,18 @@ export interface OpenAiCompatOptions {
   defaultModel: string;
   apiKey?: string;
   baseURL?: string;
+}
+
+function buildOpenAiTools(tools?: McpToolDefinition[]): OpenAI.ChatCompletionTool[] | undefined {
+  if (!tools?.length) return undefined;
+  return tools.map((t) => ({
+    type: "function" as const,
+    function: {
+      name: t.name,
+      description: t.description ?? "",
+      parameters: t.inputSchema
+    }
+  }));
 }
 
 export function createOpenAiCompatProvider(opts: OpenAiCompatOptions): LlmProvider {
@@ -24,6 +37,21 @@ export function createOpenAiCompatProvider(opts: OpenAiCompatOptions): LlmProvid
       messages.push({ role: m.role as "user" | "assistant", content: m.content });
     }
     return messages;
+  }
+
+  function extractToolUse(choice: OpenAI.ChatCompletion.Choice): ToolUseBlock[] {
+    const calls = choice.message?.tool_calls ?? [];
+    return calls
+      .filter((tc): tc is OpenAI.ChatCompletionMessageFunctionToolCall => tc.type === "function")
+      .map((tc) => ({
+        type: "tool_use" as const,
+        id: tc.id,
+        name: tc.function.name,
+        input: (() => {
+          try { return JSON.parse(tc.function.arguments) as Record<string, unknown>; }
+          catch { return {} as Record<string, unknown>; }
+        })()
+      }));
   }
 
   return {
@@ -51,14 +79,18 @@ export function createOpenAiCompatProvider(opts: OpenAiCompatOptions): LlmProvid
     },
 
     async chat(req: ChatRequest): Promise<ChatResponse> {
+      const openAiTools = buildOpenAiTools(req.tools);
       const resp = await client.chat.completions.create({
         model: req.model,
         messages: buildMessages(req),
         temperature: req.temperature ?? 0.7,
-        max_tokens: req.maxTokens ?? 4096
+        max_tokens: req.maxTokens ?? 4096,
+        ...(openAiTools ? { tools: openAiTools } : {})
       });
 
       const choice = resp.choices[0];
+      const toolUse = choice ? extractToolUse(choice) : [];
+
       return {
         content: choice?.message?.content ?? "",
         model: resp.model,
@@ -66,18 +98,21 @@ export function createOpenAiCompatProvider(opts: OpenAiCompatOptions): LlmProvid
         inputTokens: resp.usage?.prompt_tokens ?? 0,
         outputTokens: resp.usage?.completion_tokens ?? 0,
         finishReason: choice?.finish_reason ?? "stop",
-        estimatedCostUsd: 0
+        estimatedCostUsd: 0,
+        toolUse: toolUse.length > 0 ? toolUse : undefined
       };
     },
 
     async chatStream(req: ChatRequest, onToken: (t: string) => void): Promise<ChatResponse> {
+      const openAiTools = buildOpenAiTools(req.tools);
       const stream = await client.chat.completions.create({
         model: req.model,
         messages: buildMessages(req),
         temperature: req.temperature ?? 0.7,
         max_tokens: req.maxTokens ?? 4096,
         stream: true,
-        stream_options: { include_usage: true }
+        stream_options: { include_usage: true },
+        ...(openAiTools ? { tools: openAiTools } : {})
       });
 
       let content = "";
@@ -85,12 +120,24 @@ export function createOpenAiCompatProvider(opts: OpenAiCompatOptions): LlmProvid
       let outputTokens = 0;
       let finishReason = "stop";
       let model = req.model;
+      const toolCallAcc: Record<string, { id: string; name: string; args: string }> = {};
 
       for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta?.content;
-        if (delta) {
-          onToken(delta);
-          content += delta;
+        const delta = chunk.choices[0]?.delta;
+        if (delta?.content) {
+          onToken(delta.content);
+          content += delta.content;
+        }
+        if (delta?.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const idx = String(tc.index ?? 0);
+            if (!toolCallAcc[idx]) {
+              toolCallAcc[idx] = { id: tc.id ?? "", name: tc.function?.name ?? "", args: "" };
+            }
+            if (tc.function?.arguments) toolCallAcc[idx].args += tc.function.arguments;
+            if (tc.id) toolCallAcc[idx].id = tc.id;
+            if (tc.function?.name) toolCallAcc[idx].name = tc.function.name;
+          }
         }
         if (chunk.choices[0]?.finish_reason) finishReason = chunk.choices[0].finish_reason;
         if (chunk.usage) {
@@ -100,6 +147,16 @@ export function createOpenAiCompatProvider(opts: OpenAiCompatOptions): LlmProvid
         if (chunk.model) model = chunk.model;
       }
 
+      const toolUse: ToolUseBlock[] = Object.values(toolCallAcc).map((tc) => ({
+        type: "tool_use" as const,
+        id: tc.id,
+        name: tc.name,
+        input: (() => {
+          try { return JSON.parse(tc.args) as Record<string, unknown>; }
+          catch { return {} as Record<string, unknown>; }
+        })()
+      }));
+
       return {
         content,
         model,
@@ -107,7 +164,8 @@ export function createOpenAiCompatProvider(opts: OpenAiCompatOptions): LlmProvid
         inputTokens,
         outputTokens,
         finishReason,
-        estimatedCostUsd: 0
+        estimatedCostUsd: 0,
+        toolUse: toolUse.length > 0 ? toolUse : undefined
       };
     }
   };

@@ -19,9 +19,11 @@ import {
 import { buildChatRequest, getContextBudget } from "./composer.js";
 import { diffResponses, type DiffMode, type DiffResult } from "./differ.js";
 import { pipeOutput, type PipeTarget, type PipeResult } from "./pipeline.js";
+import type { McpClientManager } from "../mcp/client-manager.js";
 
 export interface ChatRuntime {
   providers: ProviderRegistry;
+  mcpClientManager?: McpClientManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -39,10 +41,19 @@ export interface SendParams {
   pipeTargets?: PipeTarget[];
 }
 
+export interface ToolCallStep {
+  toolName: string;
+  serverId: string;
+  args: Record<string, unknown>;
+  result: unknown;
+  isError: boolean;
+}
+
 export interface SendResult {
   userMessage: MessageRow;
   assistantMessage: MessageRow;
   pipeResults?: PipeResult[];
+  toolCallSteps?: ToolCallStep[];
 }
 
 function resolveProvider(rt: ChatRuntime, session: SessionRow, modelSpec?: string) {
@@ -94,6 +105,9 @@ export async function sendMessage(
     temperature: params.temperature
   });
 
+  const mcpManager = rt.mcpClientManager;
+  const availableTools = mcpManager ? mcpManager.getTools() : [];
+
   const req = buildChatRequest(session, history, {
     content: params.content,
     role: params.role ?? "user",
@@ -103,7 +117,75 @@ export async function sendMessage(
   });
   req.model = model;
 
-  const resp = await provider.chat(req);
+  if (availableTools.length > 0) {
+    req.tools = availableTools.map((t) => ({
+      name: `${t.serverId}__${t.name}`,
+      description: t.description,
+      inputSchema: t.inputSchema
+    }));
+  }
+
+  const toolCallSteps: ToolCallStep[] = [];
+  let resp = await provider.chat(req);
+  accumulateTokens(params.sessionId, resp.inputTokens, resp.outputTokens, resp.estimatedCostUsd);
+
+  // Staged tool-call loop
+  const MAX_TOOL_ROUNDS = 8;
+  let round = 0;
+  while (resp.toolUse && resp.toolUse.length > 0 && round < MAX_TOOL_ROUNDS && mcpManager) {
+    round++;
+
+    for (const toolUse of resp.toolUse) {
+      const parts = toolUse.name.split("__");
+      const serverId = parts[0];
+      const toolName = parts.slice(1).join("__");
+
+      let toolResult: unknown;
+      let isError = false;
+
+      try {
+        toolResult = await mcpManager.callTool(serverId, toolName, toolUse.input);
+      } catch (e) {
+        toolResult = e instanceof Error ? e.message : String(e);
+        isError = true;
+      }
+
+      toolCallSteps.push({
+        toolName: toolUse.name,
+        serverId,
+        args: toolUse.input,
+        result: toolResult,
+        isError
+      });
+    }
+
+    // Re-fetch updated history and continue the loop
+    const updatedHistory = getSessionMessages(params.sessionId);
+    const toolResultMessages = toolCallSteps.slice(-(resp.toolUse.length)).map((step) => ({
+      role: "user" as const,
+      content: `[Tool result for ${step.toolName}]\n${JSON.stringify(step.result, null, 2)}`
+    }));
+
+    const nextReq = buildChatRequest(session, updatedHistory, {
+      content: toolResultMessages.map((m) => m.content).join("\n\n"),
+      role: "user",
+      temperature: params.temperature,
+      maxTokens: params.maxTokens,
+      systemPromptOverride: params.systemPromptOverride
+    });
+    nextReq.model = model;
+
+    if (availableTools.length > 0) {
+      nextReq.tools = availableTools.map((t) => ({
+        name: `${t.serverId}__${t.name}`,
+        description: t.description,
+        inputSchema: t.inputSchema
+      }));
+    }
+
+    resp = await provider.chat(nextReq);
+    accumulateTokens(params.sessionId, resp.inputTokens, resp.outputTokens, resp.estimatedCostUsd);
+  }
 
   const assistantMessage = addMessage({
     session_id: params.sessionId,
@@ -117,13 +199,16 @@ export async function sendMessage(
     finish_reason: resp.finishReason
   });
 
-  accumulateTokens(params.sessionId, resp.inputTokens, resp.outputTokens, resp.estimatedCostUsd);
-
   const pipeResults = params.pipeTargets?.length
     ? await pipeOutput(resp.content, params.pipeTargets)
     : undefined;
 
-  return { userMessage, assistantMessage, pipeResults };
+  return {
+    userMessage,
+    assistantMessage,
+    pipeResults,
+    toolCallSteps: toolCallSteps.length > 0 ? toolCallSteps : undefined
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -132,6 +217,7 @@ export async function sendMessage(
 
 export interface StreamParams extends SendParams {
   onToken: (token: string) => void;
+  onToolStep?: (step: ToolCallStep) => void;
 }
 
 export async function sendMessageStream(
@@ -154,6 +240,9 @@ export async function sendMessageStream(
     return result;
   }
 
+  const mcpManager = rt.mcpClientManager;
+  const availableTools = mcpManager ? mcpManager.getTools() : [];
+
   const history = getSessionMessages(params.sessionId);
 
   const userMessage = addMessage({
@@ -172,7 +261,77 @@ export async function sendMessageStream(
   });
   req.model = model;
 
-  const resp = await provider.chatStream(req, params.onToken);
+  if (availableTools.length > 0) {
+    req.tools = availableTools.map((t) => ({
+      name: `${t.serverId}__${t.name}`,
+      description: t.description,
+      inputSchema: t.inputSchema
+    }));
+  }
+
+  const toolCallSteps: ToolCallStep[] = [];
+  let resp = await provider.chatStream(req, params.onToken);
+  accumulateTokens(params.sessionId, resp.inputTokens, resp.outputTokens, resp.estimatedCostUsd);
+
+  // Staged tool-call loop
+  const MAX_TOOL_ROUNDS = 8;
+  let round = 0;
+  while (resp.toolUse && resp.toolUse.length > 0 && round < MAX_TOOL_ROUNDS && mcpManager) {
+    round++;
+
+    for (const toolUse of resp.toolUse) {
+      const parts = toolUse.name.split("__");
+      const serverId = parts[0];
+      const toolName = parts.slice(1).join("__");
+
+      let toolResult: unknown;
+      let isError = false;
+
+      try {
+        toolResult = await mcpManager.callTool(serverId, toolName, toolUse.input);
+      } catch (e) {
+        toolResult = e instanceof Error ? e.message : String(e);
+        isError = true;
+      }
+
+      const step: ToolCallStep = {
+        toolName: toolUse.name,
+        serverId,
+        args: toolUse.input,
+        result: toolResult,
+        isError
+      };
+
+      toolCallSteps.push(step);
+      if (params.onToolStep) params.onToolStep(step);
+    }
+
+    // Continue the loop with tool results
+    const updatedHistory = getSessionMessages(params.sessionId);
+    const toolResultContent = toolCallSteps.slice(-(resp.toolUse.length))
+      .map((step) => `[Tool result for ${step.toolName}]\n${JSON.stringify(step.result, null, 2)}`)
+      .join("\n\n");
+
+    const nextReq = buildChatRequest(session, updatedHistory, {
+      content: toolResultContent,
+      role: "user",
+      temperature: params.temperature,
+      maxTokens: params.maxTokens,
+      systemPromptOverride: params.systemPromptOverride
+    });
+    nextReq.model = model;
+
+    if (availableTools.length > 0) {
+      nextReq.tools = availableTools.map((t) => ({
+        name: `${t.serverId}__${t.name}`,
+        description: t.description,
+        inputSchema: t.inputSchema
+      }));
+    }
+
+    resp = await provider.chatStream(nextReq, params.onToken);
+    accumulateTokens(params.sessionId, resp.inputTokens, resp.outputTokens, resp.estimatedCostUsd);
+  }
 
   const assistantMessage = addMessage({
     session_id: params.sessionId,
@@ -186,13 +345,16 @@ export async function sendMessageStream(
     finish_reason: resp.finishReason
   });
 
-  accumulateTokens(params.sessionId, resp.inputTokens, resp.outputTokens, resp.estimatedCostUsd);
-
   const pipeResults = params.pipeTargets?.length
     ? await pipeOutput(resp.content, params.pipeTargets)
     : undefined;
 
-  return { userMessage, assistantMessage, pipeResults };
+  return {
+    userMessage,
+    assistantMessage,
+    pipeResults,
+    toolCallSteps: toolCallSteps.length > 0 ? toolCallSteps : undefined
+  };
 }
 
 // ---------------------------------------------------------------------------

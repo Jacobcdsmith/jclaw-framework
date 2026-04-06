@@ -3,7 +3,7 @@ import { Type } from "@sinclair/typebox";
 import type { Static } from "@sinclair/typebox";
 import type { JclawPluginRegistry } from "../plugins/registry.js";
 import type { JclawSessionStore } from "./sessions.js";
-import type { ChatRuntime } from "../runtime/chat.js";
+import type { ChatRuntime, ToolCallStep } from "../runtime/chat.js";
 import {
   sendMessage,
   sendMessageStream,
@@ -245,6 +245,13 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
             type: "event",
             event: "chat.token",
             payload: { sessionId, token }
+          }));
+        },
+        onToolStep: (step: ToolCallStep) => {
+          ctx.socket.send(JSON.stringify({
+            type: "event",
+            event: "chat.toolStep",
+            payload: { sessionId, step }
           }));
         }
       });
@@ -567,6 +574,86 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       }
 
       return ok(req.id, { saved: true, provider: providerName });
+    }
+
+    // ── mcp ───────────────────────────────────────────────────────────────────
+    case "mcp.servers.list": {
+      const mcpMgr = ctx.runtime.mcpClientManager;
+      if (!mcpMgr) return ok(req.id, { servers: [] });
+      const states = mcpMgr.getServerStates();
+      return ok(req.id, {
+        servers: states.map((s) => ({
+          ...s.config,
+          status: s.status,
+          error: s.error,
+          tools: s.tools
+        }))
+      });
+    }
+
+    case "mcp.servers.upsert": {
+      const { readConfig: rc, writeConfig: wc } = await import("../storage/config.js");
+      const id = str(p.id) ?? `mcp-${Date.now().toString(36)}`;
+      const name = requireStr(req.id, p.name, "name");
+      if (typeof name !== "string") return name;
+      const transport = (str(p.transport) ?? "stdio") as "stdio" | "http";
+
+      const newEntry = {
+        id,
+        name,
+        transport,
+        command: str(p.command),
+        args: Array.isArray(p.args) ? (p.args as unknown[]).map(String) : undefined,
+        env: typeof p.env === "object" && p.env ? (p.env as Record<string, string>) : undefined,
+        url: str(p.url),
+        enabled: p.enabled !== false
+      };
+
+      const stored = rc();
+      const servers = stored.mcp?.servers ?? [];
+      const idx = servers.findIndex((s) => s.id === id);
+      if (idx >= 0) servers[idx] = newEntry;
+      else servers.push(newEntry);
+      wc({ ...stored, mcp: { servers } });
+
+      const mcpMgr = ctx.runtime.mcpClientManager;
+      if (mcpMgr) {
+        await mcpMgr.updateServer(newEntry).catch((e) => {
+          console.warn("[JCLAW] MCP connect warning:", e);
+        });
+      }
+
+      return ok(req.id, { server: newEntry });
+    }
+
+    case "mcp.servers.delete": {
+      const id = requireStr(req.id, p.id, "id");
+      if (typeof id !== "string") return id;
+
+      const { readConfig: rc, writeConfig: wc } = await import("../storage/config.js");
+      const stored = rc();
+      const servers = (stored.mcp?.servers ?? []).filter((s) => s.id !== id);
+      wc({ ...stored, mcp: { servers } });
+
+      const mcpMgr = ctx.runtime.mcpClientManager;
+      if (mcpMgr) await mcpMgr.removeServer(id).catch(() => {});
+
+      return ok(req.id, { deleted: id });
+    }
+
+    case "mcp.servers.reload": {
+      const mcpMgr = ctx.runtime.mcpClientManager;
+      if (!mcpMgr) return ok(req.id, { reloaded: false });
+      await mcpMgr.reloadConfig().catch((e) => {
+        console.warn("[JCLAW] MCP reload warning:", e);
+      });
+      return ok(req.id, { reloaded: true });
+    }
+
+    case "mcp.tools.list": {
+      const mcpMgr = ctx.runtime.mcpClientManager;
+      if (!mcpMgr) return ok(req.id, { tools: [] });
+      return ok(req.id, { tools: mcpMgr.getTools() });
     }
 
     // ── legacy ────────────────────────────────────────────────────────────────

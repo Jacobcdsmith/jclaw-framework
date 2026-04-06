@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { LlmProvider, ChatRequest, ChatResponse } from "./types.js";
+import type { LlmProvider, ChatRequest, ChatResponse, McpToolDefinition } from "./types.js";
+import type { ToolUseBlock } from "./types.js";
 
 const PRICING: Record<string, { input: number; output: number }> = {
   "claude-opus-4-6": { input: 15, output: 75 },
@@ -19,6 +20,26 @@ function buildMessages(req: ChatRequest) {
   const systemMsg =
     req.systemPrompt ?? req.messages.find((m) => m.role === "system")?.content;
   return { messages, systemMsg };
+}
+
+function buildTools(tools?: McpToolDefinition[]): Anthropic.Tool[] | undefined {
+  if (!tools?.length) return undefined;
+  return tools.map((t) => ({
+    name: t.name,
+    description: t.description ?? "",
+    input_schema: t.inputSchema as Anthropic.Tool["input_schema"]
+  }));
+}
+
+function extractToolUse(resp: Anthropic.Message): ToolUseBlock[] {
+  return resp.content
+    .filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use")
+    .map((b) => ({
+      type: "tool_use" as const,
+      id: b.id,
+      name: b.name,
+      input: b.input as Record<string, unknown>
+    }));
 }
 
 export function createAnthropicProvider(apiKey?: string): LlmProvider {
@@ -45,18 +66,22 @@ export function createAnthropicProvider(apiKey?: string): LlmProvider {
 
     async chat(req: ChatRequest): Promise<ChatResponse> {
       const { messages, systemMsg } = buildMessages(req);
+      const anthropicTools = buildTools(req.tools);
 
       const resp = await client.messages.create({
         model: req.model,
         max_tokens: req.maxTokens ?? 4096,
         temperature: req.temperature ?? 1.0,
         ...(systemMsg ? { system: systemMsg } : {}),
+        ...(anthropicTools ? { tools: anthropicTools } : {}),
         messages
       });
 
-      const content = resp.content[0]?.type === "text" ? resp.content[0].text : "";
+      const textBlock = resp.content.find((b) => b.type === "text");
+      const content = textBlock?.type === "text" ? textBlock.text : "";
       const inputTokens = resp.usage.input_tokens;
       const outputTokens = resp.usage.output_tokens;
+      const toolUse = extractToolUse(resp);
 
       return {
         content,
@@ -65,18 +90,21 @@ export function createAnthropicProvider(apiKey?: string): LlmProvider {
         inputTokens,
         outputTokens,
         finishReason: resp.stop_reason ?? "stop",
-        estimatedCostUsd: estimateCost(resp.model, inputTokens, outputTokens)
+        estimatedCostUsd: estimateCost(resp.model, inputTokens, outputTokens),
+        toolUse: toolUse.length > 0 ? toolUse : undefined
       };
     },
 
     async chatStream(req: ChatRequest, onToken: (t: string) => void): Promise<ChatResponse> {
       const { messages, systemMsg } = buildMessages(req);
+      const anthropicTools = buildTools(req.tools);
 
       const stream = await client.messages.stream({
         model: req.model,
         max_tokens: req.maxTokens ?? 4096,
         temperature: req.temperature ?? 1.0,
         ...(systemMsg ? { system: systemMsg } : {}),
+        ...(anthropicTools ? { tools: anthropicTools } : {}),
         messages
       });
 
@@ -94,6 +122,7 @@ export function createAnthropicProvider(apiKey?: string): LlmProvider {
       const final = await stream.finalMessage();
       const inputTokens = final.usage.input_tokens;
       const outputTokens = final.usage.output_tokens;
+      const toolUse = extractToolUse(final);
 
       return {
         content,
@@ -102,7 +131,8 @@ export function createAnthropicProvider(apiKey?: string): LlmProvider {
         inputTokens,
         outputTokens,
         finishReason: final.stop_reason ?? "stop",
-        estimatedCostUsd: estimateCost(final.model, inputTokens, outputTokens)
+        estimatedCostUsd: estimateCost(final.model, inputTokens, outputTokens),
+        toolUse: toolUse.length > 0 ? toolUse : undefined
       };
     }
   };

@@ -10,6 +10,7 @@ import { initProviderRegistry } from "../providers/registry.js";
 import { readConfig, mergeWithEnv } from "../storage/config.js";
 import type { ProviderConfig } from "../providers/types.js";
 import type { ChatRuntime } from "../runtime/chat.js";
+import { getMcpClientManager } from "../mcp/client-manager.js";
 
 export interface JclawGateOptions {
   port: number;
@@ -38,7 +39,12 @@ export async function startJclawGate(options: JclawGateOptions) {
 
   const providers = initProviderRegistry(providerConfig);
 
-  const runtime: ChatRuntime = { providers };
+  const mcpClientManager = getMcpClientManager();
+  await mcpClientManager.reloadConfig().catch((e) => {
+    console.warn("[JCLAW] MCP client manager init warning:", e);
+  });
+
+  const runtime: ChatRuntime = { providers, mcpClientManager };
 
   const wss = new WebSocketServer({ server: httpServer });
   wss.on("connection", (socket) => {

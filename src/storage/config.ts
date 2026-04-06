@@ -2,12 +2,16 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import type { ProviderConfig } from "../providers/types.js";
+import type { McpServerConfig } from "../mcp/types.js";
 
 const CONFIG_DIR = join(homedir(), ".jclaw");
 const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 
 export interface JclawConfig {
   providers?: ProviderConfig;
+  mcp?: {
+    servers?: McpServerConfig[];
+  };
 }
 
 export function readConfig(): JclawConfig {

@@ -10,6 +10,7 @@ import Search from "./pages/Search.tsx";
 import Chat from "./pages/Chat.tsx";
 import Terminal from "./pages/Terminal.tsx";
 import Activity from "./pages/Activity.tsx";
+import Mcp from "./pages/Mcp.tsx";
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -61,6 +62,9 @@ export default function App() {
           <NavLink to="/providers" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">⚙</span>Providers
           </NavLink>
+          <NavLink to="/mcp" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
+            <span className="nav-icon">⊕</span>MCP
+          </NavLink>
           <NavLink to="/search" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">⌕</span>Search
           </NavLink>
@@ -90,6 +94,7 @@ export default function App() {
             <Route path="/terminal" element={<Terminal />} />
             <Route path="/activity" element={<Activity />} />
             <Route path="/providers" element={<Providers />} />
+            <Route path="/mcp" element={<Mcp />} />
             <Route path="/search" element={<Search />} />
           </Routes>
         </main>

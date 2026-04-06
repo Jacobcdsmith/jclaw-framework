@@ -498,6 +498,77 @@ export function buildJclawCli() {
       console.log(r.output);
     });
 
+  // ── mcp ───────────────────────────────────────────────────────────────────
+  const mcp = program.command("mcp").description("MCP server and client management");
+
+  mcp.command("serve")
+    .description("Start jclaw as an MCP server (stdio or HTTP/SSE)")
+    .option("--transport <transport>", "stdio|http", "stdio")
+    .option("--port <port>", "Port for HTTP/SSE transport", "6006")
+    .action(async (opts) => {
+      if (opts.transport === "http") {
+        const { startMcpHttp } = await import("../mcp/server.js");
+        await startMcpHttp(Number(opts.port));
+      } else {
+        const { startMcpStdio } = await import("../mcp/server.js");
+        await startMcpStdio();
+      }
+    });
+
+  mcp.command("servers")
+    .description("List configured MCP servers and their status")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .action(async (opts) => {
+      const r = await callJclaw<{ servers: unknown[] }>("mcp.servers.list", {}, port(opts));
+      printJson(r.servers);
+    });
+
+  mcp.command("tools")
+    .description("List all tools from connected MCP servers")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .action(async (opts) => {
+      const r = await callJclaw<{ tools: unknown[] }>("mcp.tools.list", {}, port(opts));
+      printJson(r.tools);
+    });
+
+  mcp.command("add")
+    .description("Add an MCP server configuration")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .requiredOption("--name <name>", "Server name")
+    .option("--transport <transport>", "stdio|http", "stdio")
+    .option("--command <command>", "Command to run (for stdio transport)")
+    .option("--args <args>", "Comma-separated arguments")
+    .option("--url <url>", "URL (for http transport)")
+    .option("--disabled", "Add but keep disabled")
+    .action(async (opts) => {
+      const r = await callJclaw<{ server: unknown }>("mcp.servers.upsert", {
+        name: opts.name,
+        transport: opts.transport,
+        command: opts.command,
+        args: opts.args ? opts.args.split(",").map((s: string) => s.trim()) : undefined,
+        url: opts.url,
+        enabled: !opts.disabled
+      }, port(opts));
+      console.log("[MCP server added]");
+      printJson(r.server);
+    });
+
+  mcp.command("remove <id>")
+    .description("Remove an MCP server configuration")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .action(async (id, opts) => {
+      await callJclaw("mcp.servers.delete", { id }, port(opts));
+      console.log(`[MCP server removed: ${id}]`);
+    });
+
+  mcp.command("reload")
+    .description("Reload MCP server connections from config")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .action(async (opts) => {
+      await callJclaw("mcp.servers.reload", {}, port(opts));
+      console.log("[MCP servers reloaded]");
+    });
+
   return program;
 }
 

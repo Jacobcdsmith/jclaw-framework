@@ -5,12 +5,26 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface McpToolDefinition {
+  name: string;
+  description?: string;
+  inputSchema: Record<string, unknown>;
+}
+
 export interface ChatRequest {
   messages: ChatMessage[];
   model: string;
   temperature?: number;
   maxTokens?: number;
   systemPrompt?: string;
+  tools?: McpToolDefinition[];
+}
+
+export interface ToolUseBlock {
+  type: "tool_use";
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
 }
 
 export interface ChatResponse {
@@ -21,6 +35,7 @@ export interface ChatResponse {
   outputTokens: number;
   finishReason: string;
   estimatedCostUsd: number;
+  toolUse?: ToolUseBlock[];
 }
 
 /** Token-by-token stream. Each yielded value is a text delta. */

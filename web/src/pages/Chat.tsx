@@ -46,6 +46,7 @@ export default function Chat() {
   const [newProvider, setNewProvider] = useState("anthropic");
   const [newModel, setNewModel] = useState("claude-sonnet-4-6");
   const [newSystem, setNewSystem] = useState("");
+  const [toolSteps, setToolSteps] = useState<Array<{ toolName: string; args: unknown; result: unknown; isError: boolean }>>([]);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -102,6 +103,7 @@ export default function Chat() {
     if (!content || !selectedId || isStreaming) return;
     setInput("");
     setError(null);
+    setToolSteps([]);
 
     const tempUser: MessageRow = {
       id: "__pending_user__",
@@ -126,6 +128,11 @@ export default function Chat() {
         const p = payload as { token: string; sessionId: string };
         if (p.sessionId === sid) {
           setStreamText((prev) => prev + p.token);
+        }
+      } else if (event === "chat.toolStep") {
+        const p = payload as { sessionId: string; step: { toolName: string; args: unknown; result: unknown; isError: boolean } };
+        if (p.sessionId === sid) {
+          setToolSteps((prev) => [...prev, p.step]);
         }
       }
     });
@@ -275,6 +282,25 @@ export default function Chat() {
                 {msg.finish_reason && <span>stop: {msg.finish_reason}</span>}
               </div>
             )}
+          </div>
+        ))}
+
+        {isStreaming && toolSteps.map((step, i) => (
+          <div key={i} style={{
+            background: "var(--surface)", border: "1px solid var(--border)",
+            borderLeft: `3px solid ${step.isError ? "#e05c5c" : "#f5c518"}`,
+            padding: "8px 12px", fontSize: "12px"
+          }}>
+            <div style={{ fontSize: "10px", color: "#f5c518", letterSpacing: "0.15em", marginBottom: "4px" }}>
+              {step.isError ? "⚠ TOOL ERROR" : "⟳ TOOL CALL"}
+            </div>
+            <div style={{ fontFamily: "monospace", color: "var(--accent)", marginBottom: "4px" }}>
+              {step.toolName}
+            </div>
+            <div style={{ color: "var(--muted)", fontSize: "11px" }}>
+              → {JSON.stringify(step.result).slice(0, 200)}
+              {JSON.stringify(step.result).length > 200 ? "..." : ""}
+            </div>
           </div>
         ))}
 

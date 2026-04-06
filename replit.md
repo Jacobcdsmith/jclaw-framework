@@ -17,6 +17,7 @@ A local-first LLM runtime that treats LLM APIs as a persistent, automated runtim
 - `src/storage/` - SQLite persistence layer (sessions, messages, prompts, templates)
 - `src/providers/` - LLM provider adapters (Anthropic, OpenAI-compatible, Ollama, LM Studio)
 - `src/runtime/` - Core business logic (chat, context management, output piping)
+- `src/mcp/` - MCP support: server (jclaw as MCP server), client-manager (connects to external MCP servers), shared types
 - `src/channels/` - Input/output plugin channels
 - `src/agent/` - Agentic workflow runtime
 - `src/plugins/` - Plugin registry
@@ -49,6 +50,7 @@ Pages:
 - **Prompts** - Saved system prompts (expandable cards)
 - **Templates** - Session configuration templates (expandable cards)
 - **Providers** - Per-provider config: API key entry (masked), base URL, Test Connection, available models list
+- **MCP** - MCP server management: add/edit/delete/enable server configs, view connection status, list available tools
 - **Search** - Full-text search across all session messages (FTS5)
 
 The frontend communicates with the gate using the existing JSON-RPC WebSocket protocol.
