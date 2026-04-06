@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
 import Overview from "./pages/Overview.tsx";
 import Sessions from "./pages/Sessions.tsx";
@@ -11,10 +12,21 @@ import Terminal from "./pages/Terminal.tsx";
 import Activity from "./pages/Activity.tsx";
 
 export default function App() {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  function closeSidebar() {
+    setSidebarOpen(false);
+  }
+
   return (
     <BrowserRouter>
       <div className="layout">
-        <aside className="sidebar">
+        {/* Mobile overlay backdrop */}
+        {sidebarOpen && (
+          <div className="sidebar-overlay" onClick={closeSidebar} />
+        )}
+
+        <aside className={"sidebar" + (sidebarOpen ? " sidebar-open" : "")}>
           <div className="sidebar-top-bar" />
           <div className="sidebar-logo">
             JCLAW
@@ -22,35 +34,35 @@ export default function App() {
           </div>
 
           <div className="sidebar-section-label">navigation</div>
-          <NavLink to="/" end className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+          <NavLink to="/" end className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">◈</span>Overview
           </NavLink>
-          <NavLink to="/sessions" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+          <NavLink to="/sessions" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">◷</span>Sessions
           </NavLink>
-          <NavLink to="/prompts" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+          <NavLink to="/prompts" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">◧</span>Prompts
           </NavLink>
-          <NavLink to="/templates" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+          <NavLink to="/templates" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">◫</span>Templates
           </NavLink>
 
           <div className="sidebar-section-label" style={{ marginTop: "4px" }}>live</div>
-          <NavLink to="/chat" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+          <NavLink to="/chat" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">▶</span>Chat
           </NavLink>
-          <NavLink to="/terminal" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+          <NavLink to="/terminal" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">&gt;_</span>Terminal
           </NavLink>
-          <NavLink to="/activity" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+          <NavLink to="/activity" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">◉</span>Activity
           </NavLink>
 
           <div className="sidebar-section-label" style={{ marginTop: "4px" }}>config</div>
-          <NavLink to="/providers" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+          <NavLink to="/providers" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">⚙</span>Providers
           </NavLink>
-          <NavLink to="/search" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+          <NavLink to="/search" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">⌕</span>Search
           </NavLink>
 
@@ -59,6 +71,17 @@ export default function App() {
         </aside>
 
         <main className="main">
+          {/* Hamburger button — only visible on mobile */}
+          <button
+            className="hamburger-btn"
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open navigation"
+          >
+            <span />
+            <span />
+            <span />
+          </button>
+
           <Routes>
             <Route path="/" element={<Overview />} />
             <Route path="/sessions" element={<Sessions />} />

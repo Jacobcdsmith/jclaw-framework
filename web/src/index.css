@@ -715,6 +715,164 @@ a:hover {
   background: var(--surface2);
 }
 
+/* ── Hamburger button ───────────────────────────────────────────────────────── */
+
+.hamburger-btn {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  background: none;
+  border: 1px solid var(--border2);
+  cursor: pointer;
+  padding: 7px 9px;
+  margin-bottom: 16px;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+}
+
+.hamburger-btn span {
+  display: block;
+  width: 18px;
+  height: 2px;
+  background: var(--accent2);
+}
+
+/* ── Sidebar overlay (mobile drawer) ────────────────────────────────────────── */
+
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 100;
+}
+
+/* ── Responsive — mobile (<768px) ───────────────────────────────────────────── */
+
+@media (max-width: 767px) {
+  /* Show hamburger */
+  .hamburger-btn {
+    display: flex;
+  }
+
+  /* Show overlay when drawer open */
+  .sidebar-overlay {
+    display: block;
+  }
+
+  /* Sidebar becomes a fixed drawer */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100%;
+    z-index: 101;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+  }
+
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+  }
+
+  /* Main gets full width */
+  .main {
+    padding: 16px 14px;
+  }
+
+  .page-title {
+    font-size: 14px;
+    margin-bottom: 16px;
+  }
+
+  /* Stat and provider grids go single column */
+  .stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .provider-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Session header stacks vertically */
+  .session-header {
+    grid-template-columns: 1fr;
+  }
+
+}
+
+/* ── Table wrapper ──────────────────────────────────────────────────────────── */
+
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* ── Chat mobile ────────────────────────────────────────────────────────────── */
+
+.chat-session-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.chat-session-bar .trek-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-new-session-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+@media (max-width: 767px) {
+  .chat-session-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .chat-session-bar .trek-input,
+  .chat-session-bar .trek-btn {
+    width: 100%;
+  }
+
+  .chat-new-session-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-session-meta {
+    flex-wrap: wrap;
+    gap: 6px 10px;
+  }
+
+  .message-body {
+    font-size: 13px;
+    overflow-wrap: break-word;
+    word-break: break-word;
+  }
+
+  .chat-input-bar {
+    gap: 6px;
+  }
+
+  .chat-input-bar textarea.trek-input {
+    min-height: 48px;
+  }
+
+  .chat-input-bar .trek-btn {
+    min-height: 48px;
+    min-width: 64px;
+  }
+}
+
 /* ── Search ─────────────────────────────────────────────────────────────────── */
 
 .search-bar {

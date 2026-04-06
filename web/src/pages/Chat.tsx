@@ -159,13 +159,9 @@ export default function Chat() {
       <div className="page-title" style={{ flexShrink: 0 }}>Live Chat</div>
 
       {/* Session bar */}
-      <div style={{
-        display: "flex", gap: "8px", alignItems: "center", marginBottom: "12px",
-        flexShrink: 0, flexWrap: "wrap"
-      }}>
+      <div className="chat-session-bar">
         <select
           className="trek-input"
-          style={{ flex: 1, minWidth: "180px" }}
           value={selectedId}
           onChange={(e) => selectSession(e.target.value)}
         >
@@ -189,7 +185,7 @@ export default function Chat() {
           marginBottom: "12px", display: "flex", flexDirection: "column", gap: "10px", flexShrink: 0
         }}>
           <div style={{ fontSize: "10px", color: "var(--accent)", letterSpacing: "0.2em" }}>NEW SESSION</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
+          <div className="chat-new-session-grid">
             <div>
               <div className="config-label">Label (optional)</div>
               <input className="trek-input" placeholder="Session label..." value={newLabel}
@@ -226,7 +222,7 @@ export default function Chat() {
 
       {/* Session meta */}
       {currentSession && (
-        <div style={{
+        <div className="chat-session-meta" style={{
           display: "flex", gap: "16px", padding: "6px 14px",
           background: "var(--surface2)", border: "1px solid var(--border)",
           borderBottom: "2px solid var(--accent2)", marginBottom: "10px",
@@ -301,7 +297,7 @@ export default function Chat() {
 
       {/* Input bar */}
       {selectedId && (
-        <div style={{
+        <div className="chat-input-bar" style={{
           display: "flex", gap: "8px", alignItems: "flex-end",
           borderTop: "1px solid var(--border)", paddingTop: "10px", flexShrink: 0
         }}>

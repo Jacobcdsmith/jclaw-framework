@@ -104,6 +104,7 @@ export default function Sessions() {
           <div>No sessions found</div>
         </div>
       ) : (
+        <div className="table-wrap">
         <table className="table">
           <thead>
             <tr>
@@ -137,6 +138,7 @@ export default function Sessions() {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

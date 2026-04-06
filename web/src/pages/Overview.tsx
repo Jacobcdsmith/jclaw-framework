@@ -103,6 +103,7 @@ export default function Overview() {
       {stats && Object.keys(stats.perProvider).length > 0 && (
         <>
           <div className="section-title">Usage by Provider</div>
+          <div className="table-wrap">
           <table className="table">
             <thead>
               <tr>
@@ -123,6 +124,7 @@ export default function Overview() {
               ))}
             </tbody>
           </table>
+          </div>
         </>
       )}
     </div>
