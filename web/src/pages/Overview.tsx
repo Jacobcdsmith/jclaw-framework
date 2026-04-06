@@ -32,6 +32,13 @@ interface SandboxStatus {
   injectionProtection: boolean;
 }
 
+interface RedTeamStatus {
+  enabled: boolean;
+  stripSystemPrompt: boolean;
+  singleTurnIsolation: boolean;
+  bypassInjectionCheck: boolean;
+}
+
 function fmtNum(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
   if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
@@ -55,6 +62,7 @@ export default function Overview() {
   const [pinging, setPinging] = useState(true);
   const [recentSessions, setRecentSessions] = useState<Session[]>([]);
   const [sandbox, setSandbox] = useState<SandboxStatus | null>(null);
+  const [redTeam, setRedTeam] = useState<RedTeamStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -64,6 +72,9 @@ export default function Overview() {
       .catch(() => {});
     call<{ sandbox: SandboxStatus }>("sandbox.get")
       .then((r) => setSandbox(r.sandbox))
+      .catch(() => {});
+    call<{ redteam: RedTeamStatus }>("redteam.get")
+      .then((r) => setRedTeam(r.redteam))
       .catch(() => {});
     setPinging(true);
     call<{ providers: ProviderPing[] }>("providers.ping")
@@ -241,39 +252,65 @@ export default function Overview() {
           </div>
         </div>
 
-        {/* Sandbox status badge */}
-        {sandbox !== null && (
-          <div style={{ minWidth: "180px" }}>
-            <div className="section-title">Sandbox</div>
-            <div style={{
-              border: `2px solid ${sandbox.enabled ? "var(--accent)" : "var(--border)"}`,
-              padding: "16px 20px",
-              background: sandbox.enabled ? "rgba(255,170,0,0.06)" : "transparent",
-              textAlign: "center",
-            }}>
+        {/* Sandbox + Red Team status badges */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "12px", minWidth: "200px" }}>
+          {sandbox !== null && (
+            <div>
+              <div className="section-title" style={{ marginBottom: "8px" }}>Sandbox</div>
               <div style={{
-                fontSize: "22px",
-                fontWeight: 900,
-                letterSpacing: "0.08em",
-                color: sandbox.enabled ? "var(--accent)" : "var(--muted)",
+                border: `2px solid ${sandbox.enabled ? "var(--accent)" : "var(--border)"}`,
+                padding: "14px 18px",
+                background: sandbox.enabled ? "rgba(255,170,0,0.06)" : "transparent",
+                textAlign: "center",
               }}>
-                {sandbox.enabled ? "ACTIVE" : "OFF"}
+                <div style={{
+                  fontSize: "20px", fontWeight: 900, letterSpacing: "0.08em",
+                  color: sandbox.enabled ? "var(--accent)" : "var(--muted)",
+                }}>
+                  {sandbox.enabled ? "ACTIVE" : "OFF"}
+                </div>
+                <div style={{ fontSize: "11px", color: "var(--muted)", marginTop: "5px" }}>
+                  {sandbox.enabled
+                    ? (sandbox.injectionProtection ? "Injection guard ON" : "No injection guard")
+                    : "Prompts pass-through"}
+                </div>
               </div>
-              <div style={{ fontSize: "11px", color: "var(--muted)", marginTop: "6px" }}>
-                {sandbox.enabled
-                  ? (sandbox.injectionProtection ? "Injection guard ON" : "No injection guard")
-                  : "Prompts pass-through"}
-              </div>
-              <Link to="/sandbox" style={{
-                display: "block", marginTop: "10px",
-                fontSize: "11px", color: "var(--accent2)", textDecoration: "none",
-                letterSpacing: "0.06em"
-              }}>
-                Configure →
-              </Link>
             </div>
-          </div>
-        )}
+          )}
+          {redTeam !== null && (
+            <div>
+              <div className="section-title" style={{ marginBottom: "8px", color: "#ff4c4c" }}>Red Team</div>
+              <div style={{
+                border: `2px solid ${redTeam.enabled ? "#ff4c4c" : "var(--border)"}`,
+                padding: "14px 18px",
+                background: redTeam.enabled ? "rgba(255,76,76,0.06)" : "transparent",
+                textAlign: "center",
+              }}>
+                <div style={{
+                  fontSize: "20px", fontWeight: 900, letterSpacing: "0.08em",
+                  color: redTeam.enabled ? "#ff4c4c" : "var(--muted)",
+                }}>
+                  {redTeam.enabled ? "ACTIVE" : "OFF"}
+                </div>
+                <div style={{ fontSize: "11px", color: "var(--muted)", marginTop: "5px" }}>
+                  {redTeam.enabled
+                    ? [
+                        redTeam.stripSystemPrompt && "no system prompt",
+                        redTeam.singleTurnIsolation && "isolated turns",
+                        redTeam.bypassInjectionCheck && "bypass injection",
+                      ].filter(Boolean).join(" · ") || "mode active"
+                    : "guardrails on"}
+                </div>
+              </div>
+            </div>
+          )}
+          <Link to="/sandbox" style={{
+            fontSize: "11px", color: "var(--accent2)", textDecoration: "none",
+            letterSpacing: "0.06em", textAlign: "center",
+          }}>
+            Configure →
+          </Link>
+        </div>
       </div>
 
       {/* Recent sessions */}

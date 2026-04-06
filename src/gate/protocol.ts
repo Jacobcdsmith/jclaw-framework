@@ -36,7 +36,7 @@ import {
   getTemplateByName,
   deleteTemplate
 } from "../storage/templates.js";
-import { readConfig, writeConfig, mergeWithEnv, maskKey, DEFAULT_SANDBOX } from "../storage/config.js";
+import { readConfig, writeConfig, mergeWithEnv, maskKey, DEFAULT_SANDBOX, DEFAULT_REDTEAM } from "../storage/config.js";
 import { createAnthropicProvider } from "../providers/anthropic.js";
 import { createOpenAiCompatProvider } from "../providers/openai-compat.js";
 import type { PipeTarget } from "../runtime/pipeline.js";
@@ -596,6 +596,29 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
 
       writeConfig({ ...stored, sandbox: current });
       return ok(req.id, { saved: true, sandbox: current });
+    }
+
+    // ── redteam ───────────────────────────────────────────────────────────────
+    case "redteam.get": {
+      const stored = readConfig().redteam ?? {};
+      const effective = { ...DEFAULT_REDTEAM, ...stored };
+      return ok(req.id, { redteam: effective });
+    }
+
+    case "redteam.set": {
+      const stored = readConfig();
+      const current = { ...DEFAULT_REDTEAM, ...(stored.redteam ?? {}) };
+
+      if (p.enabled !== undefined) current.enabled = Boolean(p.enabled);
+      if (p.stripSystemPrompt !== undefined) current.stripSystemPrompt = Boolean(p.stripSystemPrompt);
+      if (p.forceOverride !== undefined) current.forceOverride = Boolean(p.forceOverride);
+      if (p.singleTurnIsolation !== undefined) current.singleTurnIsolation = Boolean(p.singleTurnIsolation);
+      if (p.verboseLogging !== undefined) current.verboseLogging = Boolean(p.verboseLogging);
+      if (p.bypassInjectionCheck !== undefined) current.bypassInjectionCheck = Boolean(p.bypassInjectionCheck);
+      if (p.unlimitedContext !== undefined) current.unlimitedContext = Boolean(p.unlimitedContext);
+
+      writeConfig({ ...stored, redteam: current });
+      return ok(req.id, { saved: true, redteam: current });
     }
 
     // ── mcp ───────────────────────────────────────────────────────────────────

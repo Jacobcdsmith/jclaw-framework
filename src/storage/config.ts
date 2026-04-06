@@ -25,12 +25,33 @@ export const DEFAULT_SANDBOX: SandboxConfig = {
   blockedPhrases: []
 };
 
+export interface RedTeamConfig {
+  enabled: boolean;
+  stripSystemPrompt: boolean;
+  forceOverride: boolean;
+  singleTurnIsolation: boolean;
+  verboseLogging: boolean;
+  bypassInjectionCheck: boolean;
+  unlimitedContext: boolean;
+}
+
+export const DEFAULT_REDTEAM: RedTeamConfig = {
+  enabled: false,
+  stripSystemPrompt: false,
+  forceOverride: false,
+  singleTurnIsolation: false,
+  verboseLogging: false,
+  bypassInjectionCheck: false,
+  unlimitedContext: false,
+};
+
 export interface JclawConfig {
   providers?: ProviderConfig;
   mcp?: {
     servers?: McpServerConfig[];
   };
   sandbox?: Partial<SandboxConfig>;
+  redteam?: Partial<RedTeamConfig>;
 }
 
 export function readConfig(): JclawConfig {

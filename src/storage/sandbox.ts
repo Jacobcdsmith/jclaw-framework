@@ -1,5 +1,6 @@
 import type { ChatRequest } from "../providers/types.js";
-import { readConfig, DEFAULT_SANDBOX, type SandboxConfig } from "./config.js";
+import { readConfig, DEFAULT_SANDBOX, DEFAULT_REDTEAM, type SandboxConfig, type RedTeamConfig } from "./config.js";
+export type { RedTeamConfig, SandboxConfig };
 
 const INJECTION_PATTERNS: RegExp[] = [
   /ignore\s+(all\s+)?previous\s+instructions/i,
@@ -51,4 +52,34 @@ export function applySandboxToRequest(
   if (base.trim()) parts.push(base.trim());
   if (sandbox.systemPromptSuffix?.trim()) parts.push(sandbox.systemPromptSuffix.trim());
   req.systemPrompt = parts.length > 0 ? parts.join("\n\n") : undefined;
+}
+
+export function getEffectiveRedTeam(): RedTeamConfig {
+  const stored = readConfig().redteam ?? {};
+  return { ...DEFAULT_REDTEAM, ...stored };
+}
+
+export function applyRedTeamToRequest(
+  req: ChatRequest,
+  rt: RedTeamConfig,
+  override?: string
+): void {
+  if (rt.stripSystemPrompt) {
+    req.systemPrompt = undefined;
+  } else if (rt.forceOverride && override) {
+    req.systemPrompt = override;
+  }
+  if (rt.singleTurnIsolation && req.messages) {
+    const last = req.messages[req.messages.length - 1];
+    req.messages = last ? [last] : [];
+  }
+  if (rt.verboseLogging) {
+    console.log("\n[RED TEAM] Outgoing request:", JSON.stringify({
+      model: req.model,
+      systemPrompt: req.systemPrompt,
+      messages: req.messages,
+      temperature: req.temperature,
+      maxTokens: req.maxTokens,
+    }, null, 2));
+  }
 }

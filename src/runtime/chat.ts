@@ -17,7 +17,7 @@ import {
   type MessageRow
 } from "../storage/messages.js";
 import { buildChatRequest, getContextBudget } from "./composer.js";
-import { getEffectiveSandbox, checkInjection, applySandboxToRequest } from "../storage/sandbox.js";
+import { getEffectiveSandbox, checkInjection, applySandboxToRequest, getEffectiveRedTeam, applyRedTeamToRequest } from "../storage/sandbox.js";
 import { diffResponses, type DiffMode, type DiffResult } from "./differ.js";
 import { pipeOutput, type PipeTarget, type PipeResult } from "./pipeline.js";
 import type { McpClientManager } from "../mcp/client-manager.js";
@@ -78,9 +78,11 @@ export async function sendMessage(
   const session = getSession(params.sessionId);
   if (!session) throw new Error(`Session not found: ${params.sessionId}`);
 
-  // Sandbox: injection check (before storing the message)
+  // Sandbox + red team config
   const sandbox = getEffectiveSandbox();
-  if (sandbox.enabled && sandbox.injectionProtection && (params.role ?? "user") === "user") {
+  const redTeam = getEffectiveRedTeam();
+  const skipInjection = redTeam.enabled && redTeam.bypassInjectionCheck;
+  if (sandbox.enabled && sandbox.injectionProtection && !skipInjection && (params.role ?? "user") === "user") {
     checkInjection(params.content, sandbox.blockedPhrases ?? []);
   }
 
@@ -126,6 +128,7 @@ export async function sendMessage(
   });
   req.model = model;
   if (sandbox.enabled) applySandboxToRequest(req, sandbox, session.system_prompt ?? undefined);
+  if (redTeam.enabled) applyRedTeamToRequest(req, redTeam, params.systemPromptOverride);
 
   if (availableTools.length > 0) {
     req.tools = availableTools.map((t) => ({
@@ -237,9 +240,11 @@ export async function sendMessageStream(
   const session = getSession(params.sessionId);
   if (!session) throw new Error(`Session not found: ${params.sessionId}`);
 
-  // Sandbox: injection check (before storing the message)
+  // Sandbox + red team config
   const sandbox = getEffectiveSandbox();
-  if (sandbox.enabled && sandbox.injectionProtection && (params.role ?? "user") === "user") {
+  const redTeam = getEffectiveRedTeam();
+  const skipInjection = redTeam.enabled && redTeam.bypassInjectionCheck;
+  if (sandbox.enabled && sandbox.injectionProtection && !skipInjection && (params.role ?? "user") === "user") {
     checkInjection(params.content, sandbox.blockedPhrases ?? []);
   }
 
@@ -279,6 +284,7 @@ export async function sendMessageStream(
   });
   req.model = model;
   if (sandbox.enabled) applySandboxToRequest(req, sandbox, session.system_prompt ?? undefined);
+  if (redTeam.enabled) applyRedTeamToRequest(req, redTeam, params.systemPromptOverride);
 
   if (availableTools.length > 0) {
     req.tools = availableTools.map((t) => ({

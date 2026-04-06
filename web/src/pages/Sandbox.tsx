@@ -10,7 +10,17 @@ interface SandboxConfig {
   blockedPhrases: string[];
 }
 
-const DEFAULT: SandboxConfig = {
+interface RedTeamConfig {
+  enabled: boolean;
+  stripSystemPrompt: boolean;
+  forceOverride: boolean;
+  singleTurnIsolation: boolean;
+  verboseLogging: boolean;
+  bypassInjectionCheck: boolean;
+  unlimitedContext: boolean;
+}
+
+const DEFAULT_SANDBOX: SandboxConfig = {
   enabled: false,
   systemPromptPrefix: "",
   systemPromptSuffix: "",
@@ -19,25 +29,94 @@ const DEFAULT: SandboxConfig = {
   blockedPhrases: [],
 };
 
+const DEFAULT_REDTEAM: RedTeamConfig = {
+  enabled: false,
+  stripSystemPrompt: false,
+  forceOverride: false,
+  singleTurnIsolation: false,
+  verboseLogging: false,
+  bypassInjectionCheck: false,
+  unlimitedContext: false,
+};
+
+function Toggle({ label, checked, onChange, danger }: {
+  label: string; checked: boolean; onChange: (v: boolean) => void; danger?: boolean;
+}) {
+  const color = danger ? "#ff4c4c" : "var(--accent)";
+  return (
+    <label style={{ display: "flex", alignItems: "center", gap: "12px", cursor: "pointer", userSelect: "none" }}>
+      <div
+        onClick={() => onChange(!checked)}
+        style={{
+          width: "40px", height: "22px", borderRadius: "11px", flexShrink: 0,
+          background: checked ? color : "var(--border)",
+          position: "relative", cursor: "pointer", transition: "background 0.2s",
+          border: `1px solid ${checked ? color : "var(--border)"}`,
+        }}
+      >
+        <div style={{
+          width: "16px", height: "16px", borderRadius: "50%",
+          background: checked ? "#000" : "var(--muted)",
+          position: "absolute", top: "2px",
+          left: checked ? "20px" : "2px", transition: "left 0.2s",
+        }} />
+      </div>
+      <span style={{
+        fontWeight: 700, letterSpacing: "0.05em", fontSize: "12px",
+        color: checked ? color : "var(--fg)",
+      }}>{label}</span>
+    </label>
+  );
+}
+
+function SectionDivider({ label, color }: { label: string; color: string }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: "16px",
+      margin: "40px 0 24px",
+    }}>
+      <div style={{ height: "1px", flex: 1, background: color, opacity: 0.4 }} />
+      <div style={{
+        fontSize: "11px", letterSpacing: "0.18em", fontFamily: "var(--font)",
+        color, textTransform: "uppercase", fontWeight: 700, whiteSpace: "nowrap",
+      }}>{label}</div>
+      <div style={{ height: "1px", flex: 1, background: color, opacity: 0.4 }} />
+    </div>
+  );
+}
+
 export default function Sandbox() {
-  const [cfg, setCfg] = useState<SandboxConfig>(DEFAULT);
+  const [cfg, setCfg] = useState<SandboxConfig>(DEFAULT_SANDBOX);
+  const [rt, setRt] = useState<RedTeamConfig>(DEFAULT_REDTEAM);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
+  const [savingSandbox, setSavingSandbox] = useState(false);
+  const [savingRt, setSavingRt] = useState(false);
+  const [dirtySandbox, setDirtySandbox] = useState(false);
+  const [dirtyRt, setDirtyRt] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [newPhrase, setNewPhrase] = useState("");
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    call<{ sandbox: SandboxConfig }>("sandbox.get")
-      .then((r) => { setCfg(r.sandbox); setLoading(false); })
-      .catch((e: Error) => { setError(e.message); setLoading(false); });
+    Promise.all([
+      call<{ sandbox: SandboxConfig }>("sandbox.get"),
+      call<{ redteam: RedTeamConfig }>("redteam.get"),
+    ]).then(([s, r]) => {
+      setCfg(s.sandbox);
+      setRt(r.redteam);
+      setLoading(false);
+    }).catch((e: Error) => { setError(e.message); setLoading(false); });
   }, []);
 
-  function update(patch: Partial<SandboxConfig>) {
+  function updateSandbox(patch: Partial<SandboxConfig>) {
     setCfg((prev) => ({ ...prev, ...patch }));
-    setDirty(true);
+    setDirtySandbox(true);
+  }
+
+  function updateRt(patch: Partial<RedTeamConfig>) {
+    setRt((prev) => ({ ...prev, ...patch }));
+    setDirtyRt(true);
   }
 
   function showToast(msg: string) {
@@ -46,165 +125,159 @@ export default function Sandbox() {
     toastTimerRef.current = setTimeout(() => setToast(null), 2500);
   }
 
-  async function save() {
-    setSaving(true);
+  async function saveSandbox() {
+    setSavingSandbox(true);
     try {
       await call("sandbox.set", cfg as unknown as Record<string, unknown>);
-      setDirty(false);
+      setDirtySandbox(false);
       showToast("Sandbox settings saved.");
     } catch (e: unknown) {
       setError((e as Error).message);
     } finally {
-      setSaving(false);
+      setSavingSandbox(false);
+    }
+  }
+
+  async function saveRedTeam() {
+    setSavingRt(true);
+    try {
+      await call("redteam.set", rt as unknown as Record<string, unknown>);
+      setDirtyRt(false);
+      showToast("Red team settings saved.");
+    } catch (e: unknown) {
+      setError((e as Error).message);
+    } finally {
+      setSavingRt(false);
     }
   }
 
   function addPhrase() {
     const phrase = newPhrase.trim();
     if (!phrase || cfg.blockedPhrases.includes(phrase)) return;
-    update({ blockedPhrases: [...cfg.blockedPhrases, phrase] });
+    updateSandbox({ blockedPhrases: [...cfg.blockedPhrases, phrase] });
     setNewPhrase("");
   }
 
   function removePhrase(p: string) {
-    update({ blockedPhrases: cfg.blockedPhrases.filter((x) => x !== p) });
+    updateSandbox({ blockedPhrases: cfg.blockedPhrases.filter((x) => x !== p) });
   }
 
   const effectivePromptPreview = [
     cfg.systemPromptPrefix?.trim() ? `[PREFIX]\n${cfg.systemPromptPrefix.trim()}` : null,
     "[Your session system prompt]",
     cfg.systemPromptSuffix?.trim() ? `[SUFFIX]\n${cfg.systemPromptSuffix.trim()}` : null,
-  ]
-    .filter(Boolean)
-    .join("\n\n──────────────────\n\n");
+  ].filter(Boolean).join("\n\n──────────────────\n\n");
 
-  if (loading) return <div className="loading">Loading sandbox config...</div>;
+  if (loading) return <div className="loading">Loading config...</div>;
+
+  const AMBER = "var(--accent)";
+  const CYAN = "var(--accent2)";
+  const RED = "#ff4c4c";
 
   return (
     <div>
       {toast && (
         <div style={{
           position: "fixed", top: "18px", right: "24px", zIndex: 9999,
-          background: "var(--accent)", color: "#000", padding: "10px 22px",
+          background: AMBER, color: "#000", padding: "10px 22px",
           fontFamily: "var(--font)", fontWeight: 700, letterSpacing: "0.04em",
-          borderRadius: 0, boxShadow: "0 0 20px var(--accent)",
+          boxShadow: `0 0 20px ${AMBER}`,
         }}>
           {toast}
         </div>
       )}
 
-      <div className="page-title">Prompt Sandbox</div>
-      <div style={{ color: "var(--muted)", marginBottom: "28px", fontSize: "13px", maxWidth: "640px" }}>
-        Enforce a strict system prompt shell around every conversation. When enabled, your prefix and suffix
-        are injected around the session's system prompt before every request — at the server level, not the client level.
+      <div className="page-title">Prompt Controls</div>
+      <div style={{ color: "var(--muted)", fontSize: "13px", marginBottom: "32px", maxWidth: "680px" }}>
+        Two complementary modes: <span style={{ color: AMBER }}>Sandbox</span> locks requests down with strict system
+        prompt injection and phrase blocking; <span style={{ color: RED }}>Red Team</span> does the opposite —
+        strips guardrails, exposes raw request flow, and isolates turns for open experimentation.
       </div>
 
       {error && <div className="error-state">{error}</div>}
 
+      {/* ═══════════════════════════ SANDBOX ═════════════════════════════ */}
+      <SectionDivider label="Sandbox — lock it down" color={AMBER} />
+
       {/* Master toggle */}
-      <div className="card" style={{ marginBottom: "24px" }}>
+      <div className="card" style={{ marginBottom: "20px", borderColor: cfg.enabled ? AMBER : "var(--border)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
-            <div style={{ fontWeight: 700, fontSize: "15px", letterSpacing: "0.05em" }}>SANDBOX ENABLED</div>
+            <div style={{ fontWeight: 700, fontSize: "14px", letterSpacing: "0.06em", color: AMBER }}>SANDBOX</div>
             <div style={{ color: "var(--muted)", fontSize: "12px", marginTop: "4px" }}>
               When off, all sandboxing is bypassed and requests pass through normally.
             </div>
           </div>
-          <button
-            className={"btn" + (cfg.enabled ? " btn-active" : "")}
-            style={{
-              minWidth: "120px",
-              background: cfg.enabled ? "var(--accent)" : "transparent",
-              color: cfg.enabled ? "#000" : "var(--accent)",
-              borderColor: "var(--accent)",
-            }}
-            onClick={() => update({ enabled: !cfg.enabled })}
-          >
-            {cfg.enabled ? "ENABLED" : "DISABLED"}
-          </button>
+          <Toggle label={cfg.enabled ? "ENABLED" : "DISABLED"} checked={cfg.enabled} onChange={(v) => updateSandbox({ enabled: v })} />
         </div>
       </div>
 
       {/* Protection toggles */}
-      <div className="section-title">Protection Settings</div>
-      <div className="card" style={{ marginBottom: "24px" }}>
-        <label style={{ display: "flex", alignItems: "flex-start", gap: "16px", marginBottom: "20px", cursor: "pointer" }}>
-          <input
-            type="checkbox"
+      <div className="card" style={{ marginBottom: "20px" }}>
+        <div style={{ marginBottom: "18px" }}>
+          <Toggle
+            label="Injection Protection"
             checked={cfg.injectionProtection}
-            onChange={(e) => update({ injectionProtection: e.target.checked })}
-            style={{ marginTop: "3px", accentColor: "var(--accent)", width: "16px", height: "16px", flexShrink: 0 }}
+            onChange={(v) => updateSandbox({ injectionProtection: v })}
           />
-          <div>
-            <div style={{ fontWeight: 700, letterSpacing: "0.04em" }}>INJECTION PROTECTION</div>
-            <div style={{ color: "var(--muted)", fontSize: "12px", marginTop: "2px" }}>
-              Scan user messages for known prompt injection patterns (e.g., "ignore all previous instructions",
-              "jailbreak", "reveal your system prompt"). Blocks the message at the server before it reaches the LLM.
-            </div>
+          <div style={{ color: "var(--muted)", fontSize: "11px", marginTop: "6px", paddingLeft: "52px" }}>
+            Scans user messages for 12+ built-in injection patterns (jailbreak, "ignore all previous instructions",
+            prompt leaks, DAN mode, etc.) + your custom phrases. Blocks at the server before reaching the LLM.
           </div>
-        </label>
-
-        <label style={{ display: "flex", alignItems: "flex-start", gap: "16px", cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={cfg.allowSystemPromptOverride}
-            onChange={(e) => update({ allowSystemPromptOverride: e.target.checked })}
-            style={{ marginTop: "3px", accentColor: "var(--accent)", width: "16px", height: "16px", flexShrink: 0 }}
-          />
-          <div>
-            <div style={{ fontWeight: 700, letterSpacing: "0.04em" }}>ALLOW CLIENT SYSTEM PROMPT OVERRIDE</div>
-            <div style={{ color: "var(--muted)", fontSize: "12px", marginTop: "2px" }}>
-              If unchecked, any <span className="mono">systemPromptOverride</span> field sent by chat clients is silently
-              dropped. Only the server-configured session system prompt is used. Recommended: off in production.
-            </div>
-          </div>
-        </label>
+        </div>
+        <Toggle
+          label="Allow Client System Prompt Override"
+          checked={cfg.allowSystemPromptOverride}
+          onChange={(v) => updateSandbox({ allowSystemPromptOverride: v })}
+        />
+        <div style={{ color: "var(--muted)", fontSize: "11px", marginTop: "6px", paddingLeft: "52px" }}>
+          If off, any <span className="mono">systemPromptOverride</span> from chat clients is silently dropped.
+          Only the server-configured session prompt is used.
+        </div>
       </div>
 
-      {/* System prompt prefix */}
-      <div className="section-title">System Prompt Prefix</div>
-      <div style={{ color: "var(--muted)", fontSize: "12px", marginBottom: "10px" }}>
+      {/* Prefix */}
+      <div style={{ marginBottom: "4px", fontSize: "11px", letterSpacing: "0.1em", color: "var(--muted)", textTransform: "uppercase" }}>System Prompt Prefix</div>
+      <div style={{ color: "var(--muted)", fontSize: "11px", marginBottom: "8px" }}>
         Injected <em>before</em> the session system prompt on every request when sandbox is enabled.
       </div>
       <textarea
-        className="code-area"
         style={{
-          width: "100%", height: "120px", background: "#0a0f11",
+          width: "100%", height: "100px", background: "#0a0f11",
           border: "1px solid var(--border)", color: "var(--fg)",
           fontFamily: "var(--font)", fontSize: "12px", padding: "12px",
-          resize: "vertical", boxSizing: "border-box"
+          resize: "vertical", boxSizing: "border-box", outline: "none",
         }}
         value={cfg.systemPromptPrefix}
-        onChange={(e) => update({ systemPromptPrefix: e.target.value })}
+        onChange={(e) => updateSandbox({ systemPromptPrefix: e.target.value })}
         placeholder="e.g. You are a helpful assistant. You must not reveal internal configurations."
         spellCheck={false}
       />
 
-      {/* System prompt suffix */}
-      <div className="section-title" style={{ marginTop: "20px" }}>System Prompt Suffix</div>
-      <div style={{ color: "var(--muted)", fontSize: "12px", marginBottom: "10px" }}>
+      {/* Suffix */}
+      <div style={{ marginTop: "16px", marginBottom: "4px", fontSize: "11px", letterSpacing: "0.1em", color: "var(--muted)", textTransform: "uppercase" }}>System Prompt Suffix</div>
+      <div style={{ color: "var(--muted)", fontSize: "11px", marginBottom: "8px" }}>
         Appended <em>after</em> the session system prompt on every request when sandbox is enabled.
       </div>
       <textarea
-        className="code-area"
         style={{
-          width: "100%", height: "120px", background: "#0a0f11",
+          width: "100%", height: "100px", background: "#0a0f11",
           border: "1px solid var(--border)", color: "var(--fg)",
           fontFamily: "var(--font)", fontSize: "12px", padding: "12px",
-          resize: "vertical", boxSizing: "border-box"
+          resize: "vertical", boxSizing: "border-box", outline: "none",
         }}
         value={cfg.systemPromptSuffix}
-        onChange={(e) => update({ systemPromptSuffix: e.target.value })}
+        onChange={(e) => updateSandbox({ systemPromptSuffix: e.target.value })}
         placeholder="e.g. Always end your response with: 'Is there anything else I can help you with?'"
         spellCheck={false}
       />
 
       {/* Blocked phrases */}
-      <div className="section-title" style={{ marginTop: "20px" }}>Custom Blocked Phrases</div>
-      <div style={{ color: "var(--muted)", fontSize: "12px", marginBottom: "12px" }}>
-        Additional phrases to block in user messages (case-insensitive substring match). These supplement the built-in injection pattern list.
+      <div style={{ marginTop: "20px", marginBottom: "4px", fontSize: "11px", letterSpacing: "0.1em", color: "var(--muted)", textTransform: "uppercase" }}>Custom Blocked Phrases</div>
+      <div style={{ color: "var(--muted)", fontSize: "11px", marginBottom: "10px" }}>
+        Additional phrases blocked in user messages (case-insensitive substring match).
       </div>
-      <div style={{ display: "flex", gap: "10px", marginBottom: "12px" }}>
+      <div style={{ display: "flex", gap: "10px", marginBottom: "10px" }}>
         <input
           className="input"
           style={{ flex: 1 }}
@@ -216,68 +289,178 @@ export default function Sandbox() {
         <button className="btn" onClick={addPhrase}>Add</button>
       </div>
       {cfg.blockedPhrases.length > 0 ? (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "20px" }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "16px" }}>
           {cfg.blockedPhrases.map((phrase) => (
-            <div
-              key={phrase}
-              style={{
-                display: "flex", alignItems: "center", gap: "8px",
-                background: "#0a0f11", border: "1px solid var(--border)",
-                padding: "4px 12px", fontFamily: "var(--font)", fontSize: "12px"
-              }}
-            >
-              <span className="mono" style={{ color: "var(--accent2)" }}>{phrase}</span>
-              <button
-                onClick={() => removePhrase(phrase)}
-                style={{
-                  background: "none", border: "none", cursor: "pointer",
-                  color: "var(--muted)", fontSize: "14px", padding: 0, lineHeight: 1
-                }}
-              >×</button>
+            <div key={phrase} style={{
+              display: "flex", alignItems: "center", gap: "8px",
+              background: "#0a0f11", border: "1px solid var(--border)",
+              padding: "4px 12px", fontFamily: "var(--font)", fontSize: "12px",
+            }}>
+              <span className="mono" style={{ color: CYAN }}>{phrase}</span>
+              <button onClick={() => removePhrase(phrase)} style={{
+                background: "none", border: "none", cursor: "pointer",
+                color: "var(--muted)", fontSize: "14px", padding: 0, lineHeight: 1,
+              }}>×</button>
             </div>
           ))}
         </div>
       ) : (
-        <div style={{ color: "var(--muted)", fontSize: "12px", marginBottom: "20px" }}>No custom phrases added.</div>
+        <div style={{ color: "var(--muted)", fontSize: "12px", marginBottom: "12px" }}>No custom phrases added.</div>
       )}
 
-      {/* Preview */}
+      {/* Prompt assembly preview */}
       {cfg.enabled && (
         <>
-          <div className="section-title" style={{ marginTop: "8px", color: "var(--accent2)" }}>
-            ◈ Effective Prompt Assembly Preview
-          </div>
-          <div style={{ color: "var(--muted)", fontSize: "12px", marginBottom: "10px" }}>
-            This shows how your system prompt will be assembled for each request (when sandbox is enabled).
+          <div style={{ marginTop: "16px", marginBottom: "4px", fontSize: "11px", letterSpacing: "0.1em", color: CYAN, textTransform: "uppercase" }}>
+            Effective Prompt Assembly Preview
           </div>
           <pre style={{
-            background: "#0a0f11", border: "1px solid var(--accent2)",
-            color: "var(--accent2)", padding: "16px", fontSize: "12px",
+            background: "#0a0f11", border: `1px solid ${CYAN}`,
+            color: CYAN, padding: "16px", fontSize: "12px",
             fontFamily: "var(--font)", whiteSpace: "pre-wrap", wordBreak: "break-word",
-            marginBottom: "24px"
+            marginBottom: "8px",
           }}>
             {effectivePromptPreview}
           </pre>
         </>
       )}
 
-      {/* Save */}
-      <div style={{ display: "flex", gap: "12px", alignItems: "center", paddingBottom: "32px" }}>
+      {/* Sandbox save */}
+      <div style={{ display: "flex", gap: "12px", alignItems: "center", marginTop: "20px" }}>
         <button
           className="btn"
           style={{
-            opacity: dirty ? 1 : 0.5,
-            background: dirty ? "var(--accent)" : "transparent",
-            color: dirty ? "#000" : "var(--muted)",
-            borderColor: dirty ? "var(--accent)" : "var(--border)",
-            cursor: dirty ? "pointer" : "default",
+            opacity: dirtySandbox ? 1 : 0.5,
+            background: dirtySandbox ? AMBER : "transparent",
+            color: dirtySandbox ? "#000" : "var(--muted)",
+            borderColor: dirtySandbox ? AMBER : "var(--border)",
           }}
-          disabled={saving || !dirty}
-          onClick={save}
+          disabled={savingSandbox || !dirtySandbox}
+          onClick={saveSandbox}
         >
-          {saving ? "Saving..." : "Save Changes"}
+          {savingSandbox ? "Saving..." : "Save Sandbox"}
         </button>
-        {!dirty && <span style={{ color: "var(--muted)", fontSize: "12px" }}>No unsaved changes.</span>}
+        {!dirtySandbox && <span style={{ color: "var(--muted)", fontSize: "12px" }}>No unsaved changes.</span>}
+      </div>
+
+      {/* ═══════════════════════════ RED TEAM ════════════════════════════ */}
+      <SectionDivider label="Red Team — open experimentation" color={RED} />
+
+      <div style={{ color: "var(--muted)", fontSize: "13px", marginBottom: "20px", maxWidth: "680px" }}>
+        Designed for adversarial testing, prompt engineering research, and exploring model behavior
+        without restrictions. These settings override sandbox protections. Use with intent.
+      </div>
+
+      {/* Red team master toggle */}
+      <div className="card" style={{
+        marginBottom: "20px",
+        borderColor: rt.enabled ? RED : "var(--border)",
+        background: rt.enabled ? "rgba(255,76,76,0.04)" : "transparent",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: "14px", letterSpacing: "0.06em", color: RED }}>RED TEAM MODE</div>
+            <div style={{ color: "var(--muted)", fontSize: "12px", marginTop: "4px" }}>
+              Enables all selected red team options below. Each option can be toggled independently.
+            </div>
+          </div>
+          <Toggle label={rt.enabled ? "ACTIVE" : "INACTIVE"} checked={rt.enabled} onChange={(v) => updateRt({ enabled: v })} danger />
+        </div>
+      </div>
+
+      {/* Red team options */}
+      <div className="card" style={{ marginBottom: "20px" }}>
+        {([
+          {
+            key: "stripSystemPrompt" as const,
+            label: "Strip All System Prompts",
+            desc: "Remove the session system prompt, sandbox prefix/suffix, and any client override before sending to the LLM. The model receives no system instructions whatsoever.",
+          },
+          {
+            key: "forceOverride" as const,
+            label: "Force Client System Prompt Override",
+            desc: "Always honor the client-supplied systemPromptOverride field, even if sandbox has blocked overrides. Takes effect only when stripSystemPrompt is off.",
+          },
+          {
+            key: "singleTurnIsolation" as const,
+            label: "Single-Turn Isolation",
+            desc: "Strip all conversation history before sending. Each request is treated as a standalone first message with no prior context — useful for testing model behavior without cross-contamination.",
+          },
+          {
+            key: "bypassInjectionCheck" as const,
+            label: "Bypass Injection Protection",
+            desc: "Skip all sandbox injection pattern checks (built-in regex + custom phrases). Messages that would normally be blocked will pass through to the model.",
+          },
+          {
+            key: "verboseLogging" as const,
+            label: "Verbose Request Logging",
+            desc: "Print the full outgoing ChatRequest (model, system prompt, messages, temperature, maxTokens) to the server console before every API call. Useful for inspecting exactly what the model receives.",
+          },
+          {
+            key: "unlimitedContext" as const,
+            label: "Unlimited Context (No Trimming)",
+            desc: "Pass the full conversation history to the provider with no token-budget trimming applied. The runtime already does this by default — this flag is a future-proof explicit opt-in.",
+          },
+        ] as Array<{ key: keyof RedTeamConfig; label: string; desc: string }>).map(({ key, label, desc }, i, arr) => (
+          <div key={key} style={{ marginBottom: i < arr.length - 1 ? "20px" : 0 }}>
+            <Toggle
+              label={label}
+              checked={rt[key] as boolean}
+              onChange={(v) => updateRt({ [key]: v })}
+              danger
+            />
+            <div style={{ color: "var(--muted)", fontSize: "11px", marginTop: "6px", paddingLeft: "52px" }}>
+              {desc}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Red team quick presets */}
+      <div style={{ marginBottom: "4px", fontSize: "11px", letterSpacing: "0.1em", color: "var(--muted)", textTransform: "uppercase" }}>Quick Presets</div>
+      <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "20px" }}>
+        <button className="btn" style={{ borderColor: RED, color: RED, fontSize: "12px" }} onClick={() => {
+          setRt({ enabled: true, stripSystemPrompt: true, forceOverride: false, singleTurnIsolation: false, verboseLogging: true, bypassInjectionCheck: true, unlimitedContext: false });
+          setDirtyRt(true);
+        }}>
+          Raw Passthrough
+        </button>
+        <button className="btn" style={{ borderColor: RED, color: RED, fontSize: "12px" }} onClick={() => {
+          setRt({ enabled: true, stripSystemPrompt: false, forceOverride: true, singleTurnIsolation: true, verboseLogging: true, bypassInjectionCheck: true, unlimitedContext: false });
+          setDirtyRt(true);
+        }}>
+          Isolated Probe
+        </button>
+        <button className="btn" style={{ borderColor: RED, color: RED, fontSize: "12px" }} onClick={() => {
+          setRt({ enabled: true, stripSystemPrompt: false, forceOverride: false, singleTurnIsolation: false, verboseLogging: true, bypassInjectionCheck: true, unlimitedContext: false });
+          setDirtyRt(true);
+        }}>
+          Log Everything
+        </button>
+        <button className="btn" style={{ borderColor: "var(--border)", color: "var(--muted)", fontSize: "12px" }} onClick={() => {
+          setRt(DEFAULT_REDTEAM);
+          setDirtyRt(true);
+        }}>
+          Reset All
+        </button>
+      </div>
+
+      {/* Red team save */}
+      <div style={{ display: "flex", gap: "12px", alignItems: "center", paddingBottom: "40px" }}>
+        <button
+          className="btn"
+          style={{
+            opacity: dirtyRt ? 1 : 0.5,
+            background: dirtyRt ? RED : "transparent",
+            color: dirtyRt ? "#fff" : "var(--muted)",
+            borderColor: dirtyRt ? RED : "var(--border)",
+          }}
+          disabled={savingRt || !dirtyRt}
+          onClick={saveRedTeam}
+        >
+          {savingRt ? "Saving..." : "Save Red Team"}
+        </button>
+        {!dirtyRt && <span style={{ color: "var(--muted)", fontSize: "12px" }}>No unsaved changes.</span>}
       </div>
     </div>
   );
