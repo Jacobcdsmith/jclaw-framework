@@ -296,7 +296,7 @@ export default function Metrics() {
   const [stability, setStability] = useState<ProviderModelStability[]>([]);
 
   // Token throughput: tokens/sec sampled every 1s, 90s history
-  const tokenBucket = useRef<Array<{ ts: number; chars: number }>>([]);
+  const tokenBucket = useRef<Array<{ ts: number; count: number }>>([]);
   const [tokenRateSeries, setTokenRateSeries] = useState<number[]>([]);
   const [tokenRateNow, setTokenRateNow] = useState(0);
 
@@ -311,7 +311,7 @@ export default function Metrics() {
         const token = String(p.token ?? "");
         if (token.length > 0) {
           addToken(token);
-          tokenBucket.current.push({ ts: Date.now(), chars: token.length });
+          tokenBucket.current.push({ ts: Date.now(), count: 1 });
         }
       }
       if (event === "metrics.sample") {
@@ -331,7 +331,7 @@ export default function Metrics() {
       const w90 = tokenBucket.current.filter((t) => now - t.ts < 90_000);
       tokenBucket.current = w90;
       const w5 = w90.filter((t) => now - t.ts < 5_000);
-      const rate = w5.reduce((a, b) => a + b.chars, 0) / 5;
+      const rate = w5.reduce((a, b) => a + b.count, 0) / 5;
       setTokenRateNow(rate);
       setTokenRateSeries((prev) => {
         const next = [...prev, rate];
@@ -436,7 +436,7 @@ export default function Metrics() {
       <div style={{ display: "flex", gap: "10px", marginBottom: "16px", flexWrap: "wrap" }}>
         <Sparkline
           title="Token Throughput"
-          value={tokenRateNow.toFixed(1) + " ch/s"}
+          value={tokenRateNow.toFixed(1) + " tok/s"}
           data={tokenRateSeries}
           color="var(--accent)"
           gradId="grad-tok"

@@ -57,8 +57,8 @@ function computeScore(records: MetricRecord[]): number {
   let variancePenalty = 0;
   if (ttfts.length > 0) {
     const avg = mean(ttfts);
-    // Linear: score 100 at <=500ms, score 0 at >=5000ms
-    ttftBase = Math.max(0, Math.min(100, 100 - (avg - 500) / ((5000 - 500) / 100)));
+    // Linear: score 100 at 0ms, score 0 at 5000ms
+    ttftBase = Math.max(0, Math.min(100, 100 - (avg / 5000) * 100));
     if (ttfts.length >= 3) {
       const coeff = avg > 0 ? stdDev(ttfts) / avg : 0;
       if (coeff > 0.5) variancePenalty = 20;

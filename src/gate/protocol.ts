@@ -216,6 +216,7 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       if (typeof content !== "string") return content;
 
       const _sendStart = Date.now();
+      const _costBefore = dbGetSession(sessionId)?.estimated_cost_usd ?? 0;
       let result;
       try {
         result = await sendMessage(ctx.runtime, {
@@ -241,11 +242,12 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       }
       const _totalMs = Date.now() - _sendStart;
       const _am = result.assistantMessage;
+      const _costAfter = dbGetSession(sessionId)?.estimated_cost_usd ?? 0;
       const rec = recordMetric({
         provider: _am.provider ?? "unknown", model: _am.model ?? "unknown",
         sessionId, startedAt: _sendStart, ttftMs: null, totalMs: _totalMs,
         inputTokens: _am.input_tokens ?? 0, outputTokens: _am.output_tokens ?? 0,
-        estimatedCostUsd: 0
+        estimatedCostUsd: Math.max(0, _costAfter - _costBefore)
       });
       ctx.socket.send(JSON.stringify({ type: "event", event: "metrics.sample", payload: rec }));
       return ok(req.id, result);
@@ -258,6 +260,7 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       if (typeof content !== "string") return content;
 
       const _streamStart = Date.now();
+      const _sCostBefore = dbGetSession(sessionId)?.estimated_cost_usd ?? 0;
       let _ttftMs: number | null = null;
       let _streamResult;
       try {
@@ -295,11 +298,12 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       }
       const _totalMs = Date.now() - _streamStart;
       const _am2 = _streamResult.assistantMessage;
+      const _sCostAfter = dbGetSession(sessionId)?.estimated_cost_usd ?? 0;
       const _rec2 = recordMetric({
         provider: _am2.provider ?? "unknown", model: _am2.model ?? "unknown",
         sessionId, startedAt: _streamStart, ttftMs: _ttftMs, totalMs: _totalMs,
         inputTokens: _am2.input_tokens ?? 0, outputTokens: _am2.output_tokens ?? 0,
-        estimatedCostUsd: 0
+        estimatedCostUsd: Math.max(0, _sCostAfter - _sCostBefore)
       });
       ctx.socket.send(JSON.stringify({ type: "event", event: "metrics.sample", payload: _rec2 }));
       return ok(req.id, _streamResult);
