@@ -55,7 +55,7 @@ function fmtCost(n: number): string {
 export default function Activity() {
   const [frames, setFrames] = useState<RawEntry[]>([]);
   const [tokens, setTokens] = useState<{ ts: number; count: number }[]>([]);
-  const [tokenTotal, setTokenTotal] = useState(0);
+  const [metricsTokenTotal, setMetricsTokenTotal] = useState(0);
   const [stats, setStats] = useState<Stats | null>(null);
   const [connected, setConnected] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -91,12 +91,17 @@ export default function Activity() {
         const p = payload as { token: string };
         const tokenLen = p.token?.length ?? 0;
         if (tokenLen > 0) {
-          setTokenTotal((prev) => prev + 1);
           setTokens((prev) => {
             const now = Date.now();
             const next = [...prev.filter((t) => now - t.ts < 10_000), { ts: now, count: 1 }];
             return next;
           });
+        }
+      }
+      if (event === "metrics.sample") {
+        const rec = payload as { outputTokens?: number };
+        if (rec.outputTokens) {
+          setMetricsTokenTotal((prev) => prev + (rec.outputTokens ?? 0));
         }
       }
     });
@@ -173,7 +178,7 @@ export default function Activity() {
           background: "var(--surface)", border: "1px solid var(--border)", padding: "6px 12px",
           fontSize: "10px", color: "var(--text3)", letterSpacing: "0.12em"
         }}>
-          TOKENS: <span style={{ color: "var(--accent)" }}>{tokenTotal}</span>
+          TOKENS: <span style={{ color: "var(--accent)" }}>{metricsTokenTotal}</span>
           <span style={{ color: "var(--text3)", marginLeft: "8px" }}>({tokensPerSec}/s)</span>
         </div>
 

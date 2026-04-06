@@ -57,7 +57,8 @@ function computeScore(records: MetricRecord[]): number {
   let variancePenalty = 0;
   if (ttfts.length > 0) {
     const avg = mean(ttfts);
-    ttftBase = Math.max(0, Math.min(100, 100 - (avg - 500) / 45));
+    // Linear: score 100 at <=500ms, score 0 at >=5000ms
+    ttftBase = Math.max(0, Math.min(100, 100 - (avg - 500) / ((5000 - 500) / 100)));
     if (ttfts.length >= 3) {
       const coeff = avg > 0 ? stdDev(ttfts) / avg : 0;
       if (coeff > 0.5) variancePenalty = 20;
@@ -66,8 +67,10 @@ function computeScore(records: MetricRecord[]): number {
   return Math.max(0, Math.min(100, ttftBase - errorPenalty - variancePenalty));
 }
 
-export interface ProviderStability {
+export interface ProviderModelStability {
   provider: string;
+  model: string;
+  key: string;
   score: number;
   avgTtftMs: number | null;
   avgTotalMs: number | null;
@@ -77,22 +80,26 @@ export interface ProviderStability {
   recentDots: Array<{ score: number; ttftMs: number | null; totalMs: number; errorCode?: string }>;
 }
 
-export function getStabilitySummary(): ProviderStability[] {
+export function getStabilitySummary(): ProviderModelStability[] {
   const all = listMetrics(200);
-  const byProvider = new Map<string, MetricRecord[]>();
+  const byKey = new Map<string, MetricRecord[]>();
   for (const rec of all) {
-    if (!byProvider.has(rec.provider)) byProvider.set(rec.provider, []);
-    byProvider.get(rec.provider)!.push(rec);
+    const key = `${rec.provider}/${rec.model}`;
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key)!.push(rec);
   }
-  const result: ProviderStability[] = [];
-  for (const [provider, records] of byProvider) {
+  const result: ProviderModelStability[] = [];
+  for (const [key, records] of byKey) {
     const last20 = records.slice(-20);
     const errorCount = last20.filter((r) => r.errorCode).length;
     const ttfts = last20.filter((r) => r.ttftMs !== null).map((r) => r.ttftMs!);
     const totals = last20.map((r) => r.totalMs);
     const outs = last20.map((r) => r.outputTokens);
+    const [provider, ...modelParts] = key.split("/");
     result.push({
       provider,
+      model: modelParts.join("/"),
+      key,
       score: computeScore(records),
       avgTtftMs: ttfts.length > 0 ? mean(ttfts) : null,
       avgTotalMs: totals.length > 0 ? mean(totals) : null,
