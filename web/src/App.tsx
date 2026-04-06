@@ -6,6 +6,9 @@ import Prompts from "./pages/Prompts.tsx";
 import Templates from "./pages/Templates.tsx";
 import Providers from "./pages/Providers.tsx";
 import Search from "./pages/Search.tsx";
+import Chat from "./pages/Chat.tsx";
+import Terminal from "./pages/Terminal.tsx";
+import Activity from "./pages/Activity.tsx";
 
 export default function App() {
   return (
@@ -17,54 +20,44 @@ export default function App() {
             JCLAW
             <span>gate dashboard v2</span>
           </div>
+
           <div className="sidebar-section-label">navigation</div>
-          <NavLink
-            to="/"
-            end
-            className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}
-          >
-            <span className="nav-icon">◈</span>
-            Overview
+          <NavLink to="/" end className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+            <span className="nav-icon">◈</span>Overview
           </NavLink>
-          <NavLink
-            to="/sessions"
-            className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}
-          >
-            <span className="nav-icon">◷</span>
-            Sessions
+          <NavLink to="/sessions" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+            <span className="nav-icon">◷</span>Sessions
           </NavLink>
-          <NavLink
-            to="/prompts"
-            className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}
-          >
-            <span className="nav-icon">◧</span>
-            Prompts
+          <NavLink to="/prompts" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+            <span className="nav-icon">◧</span>Prompts
           </NavLink>
-          <NavLink
-            to="/templates"
-            className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}
-          >
-            <span className="nav-icon">◫</span>
-            Templates
+          <NavLink to="/templates" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+            <span className="nav-icon">◫</span>Templates
           </NavLink>
+
+          <div className="sidebar-section-label" style={{ marginTop: "4px" }}>live</div>
+          <NavLink to="/chat" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+            <span className="nav-icon">▶</span>Chat
+          </NavLink>
+          <NavLink to="/terminal" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+            <span className="nav-icon">&gt;_</span>Terminal
+          </NavLink>
+          <NavLink to="/activity" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+            <span className="nav-icon">◉</span>Activity
+          </NavLink>
+
           <div className="sidebar-section-label" style={{ marginTop: "4px" }}>config</div>
-          <NavLink
-            to="/providers"
-            className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}
-          >
-            <span className="nav-icon">⚙</span>
-            Providers
+          <NavLink to="/providers" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+            <span className="nav-icon">⚙</span>Providers
           </NavLink>
-          <NavLink
-            to="/search"
-            className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}
-          >
-            <span className="nav-icon">◉</span>
-            Search
+          <NavLink to="/search" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")}>
+            <span className="nav-icon">⌕</span>Search
           </NavLink>
+
           <div className="sidebar-spacer" />
           <div className="sidebar-bottom-bar" />
         </aside>
+
         <main className="main">
           <Routes>
             <Route path="/" element={<Overview />} />
@@ -72,6 +65,9 @@ export default function App() {
             <Route path="/sessions/:id" element={<SessionDetail />} />
             <Route path="/prompts" element={<Prompts />} />
             <Route path="/templates" element={<Templates />} />
+            <Route path="/chat" element={<Chat />} />
+            <Route path="/terminal" element={<Terminal />} />
+            <Route path="/activity" element={<Activity />} />
             <Route path="/providers" element={<Providers />} />
             <Route path="/search" element={<Search />} />
           </Routes>
