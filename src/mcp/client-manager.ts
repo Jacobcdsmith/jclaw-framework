@@ -62,7 +62,7 @@ export function createMcpClientManager(): McpClientManager {
       await client.connect(transport);
 
       const toolsResult = await client.listTools();
-      const tools: McpToolDef[] = (toolsResult.tools ?? []).map((t) => ({
+      const tools: McpToolDef[] = (toolsResult.tools ?? []).map((t: { name: string; description?: string; inputSchema?: Record<string, unknown> }) => ({
         serverId: config.id,
         serverName: config.name,
         name: t.name,
