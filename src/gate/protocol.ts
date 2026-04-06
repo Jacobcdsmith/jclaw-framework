@@ -36,7 +36,7 @@ import {
   getTemplateByName,
   deleteTemplate
 } from "../storage/templates.js";
-import { readConfig, writeConfig, mergeWithEnv, maskKey } from "../storage/config.js";
+import { readConfig, writeConfig, mergeWithEnv, maskKey, DEFAULT_SANDBOX } from "../storage/config.js";
 import { createAnthropicProvider } from "../providers/anthropic.js";
 import { createOpenAiCompatProvider } from "../providers/openai-compat.js";
 import type { PipeTarget } from "../runtime/pipeline.js";
@@ -574,6 +574,28 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       }
 
       return ok(req.id, { saved: true, provider: providerName });
+    }
+
+    // ── sandbox ───────────────────────────────────────────────────────────────
+    case "sandbox.get": {
+      const stored = readConfig().sandbox ?? {};
+      const effective = { ...DEFAULT_SANDBOX, ...stored };
+      return ok(req.id, { sandbox: effective });
+    }
+
+    case "sandbox.set": {
+      const stored = readConfig();
+      const current = { ...DEFAULT_SANDBOX, ...(stored.sandbox ?? {}) };
+
+      if (p.enabled !== undefined) current.enabled = Boolean(p.enabled);
+      if (p.allowSystemPromptOverride !== undefined) current.allowSystemPromptOverride = Boolean(p.allowSystemPromptOverride);
+      if (p.injectionProtection !== undefined) current.injectionProtection = Boolean(p.injectionProtection);
+      if (typeof p.systemPromptPrefix === "string") current.systemPromptPrefix = p.systemPromptPrefix;
+      if (typeof p.systemPromptSuffix === "string") current.systemPromptSuffix = p.systemPromptSuffix;
+      if (Array.isArray(p.blockedPhrases)) current.blockedPhrases = (p.blockedPhrases as unknown[]).map(String);
+
+      writeConfig({ ...stored, sandbox: current });
+      return ok(req.id, { saved: true, sandbox: current });
     }
 
     // ── mcp ───────────────────────────────────────────────────────────────────

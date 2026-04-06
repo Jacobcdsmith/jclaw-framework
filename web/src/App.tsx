@@ -11,6 +11,7 @@ import Chat from "./pages/Chat.tsx";
 import Terminal from "./pages/Terminal.tsx";
 import Activity from "./pages/Activity.tsx";
 import Mcp from "./pages/Mcp.tsx";
+import Sandbox from "./pages/Sandbox.tsx";
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -22,7 +23,6 @@ export default function App() {
   return (
     <BrowserRouter>
       <div className="layout">
-        {/* Mobile overlay backdrop */}
         {sidebarOpen && (
           <div className="sidebar-overlay" onClick={closeSidebar} />
         )}
@@ -62,6 +62,9 @@ export default function App() {
           <NavLink to="/providers" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">⚙</span>Providers
           </NavLink>
+          <NavLink to="/sandbox" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
+            <span className="nav-icon">⬛</span>Sandbox
+          </NavLink>
           <NavLink to="/mcp" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">⊕</span>MCP
           </NavLink>
@@ -73,7 +76,6 @@ export default function App() {
         </aside>
 
         <main className="main">
-          {/* Hamburger button — only visible on mobile */}
           <button
             className="hamburger-btn"
             onClick={() => setSidebarOpen(true)}
@@ -94,6 +96,7 @@ export default function App() {
             <Route path="/terminal" element={<Terminal />} />
             <Route path="/activity" element={<Activity />} />
             <Route path="/providers" element={<Providers />} />
+            <Route path="/sandbox" element={<Sandbox />} />
             <Route path="/mcp" element={<Mcp />} />
             <Route path="/search" element={<Search />} />
           </Routes>

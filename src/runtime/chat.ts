@@ -17,6 +17,7 @@ import {
   type MessageRow
 } from "../storage/messages.js";
 import { buildChatRequest, getContextBudget } from "./composer.js";
+import { getEffectiveSandbox, checkInjection, applySandboxToRequest } from "../storage/sandbox.js";
 import { diffResponses, type DiffMode, type DiffResult } from "./differ.js";
 import { pipeOutput, type PipeTarget, type PipeResult } from "./pipeline.js";
 import type { McpClientManager } from "../mcp/client-manager.js";
@@ -77,6 +78,12 @@ export async function sendMessage(
   const session = getSession(params.sessionId);
   if (!session) throw new Error(`Session not found: ${params.sessionId}`);
 
+  // Sandbox: injection check (before storing the message)
+  const sandbox = getEffectiveSandbox();
+  if (sandbox.enabled && sandbox.injectionProtection && (params.role ?? "user") === "user") {
+    checkInjection(params.content, sandbox.blockedPhrases ?? []);
+  }
+
   // Cost ceiling check
   if (session.cost_ceiling_usd !== null) {
     if (session.estimated_cost_usd >= session.cost_ceiling_usd) {
@@ -113,9 +120,12 @@ export async function sendMessage(
     role: params.role ?? "user",
     temperature: params.temperature,
     maxTokens: params.maxTokens,
-    systemPromptOverride: params.systemPromptOverride
+    systemPromptOverride: sandbox.enabled && !sandbox.allowSystemPromptOverride
+      ? undefined
+      : params.systemPromptOverride
   });
   req.model = model;
+  if (sandbox.enabled) applySandboxToRequest(req, sandbox, session.system_prompt ?? undefined);
 
   if (availableTools.length > 0) {
     req.tools = availableTools.map((t) => ({
@@ -227,6 +237,12 @@ export async function sendMessageStream(
   const session = getSession(params.sessionId);
   if (!session) throw new Error(`Session not found: ${params.sessionId}`);
 
+  // Sandbox: injection check (before storing the message)
+  const sandbox = getEffectiveSandbox();
+  if (sandbox.enabled && sandbox.injectionProtection && (params.role ?? "user") === "user") {
+    checkInjection(params.content, sandbox.blockedPhrases ?? []);
+  }
+
   if (session.cost_ceiling_usd !== null && session.estimated_cost_usd >= session.cost_ceiling_usd) {
     throw new Error(`Cost ceiling reached: $${session.estimated_cost_usd.toFixed(4)}`);
   }
@@ -257,9 +273,12 @@ export async function sendMessageStream(
     role: params.role ?? "user",
     temperature: params.temperature,
     maxTokens: params.maxTokens,
-    systemPromptOverride: params.systemPromptOverride
+    systemPromptOverride: sandbox.enabled && !sandbox.allowSystemPromptOverride
+      ? undefined
+      : params.systemPromptOverride
   });
   req.model = model;
+  if (sandbox.enabled) applySandboxToRequest(req, sandbox, session.system_prompt ?? undefined);
 
   if (availableTools.length > 0) {
     req.tools = availableTools.map((t) => ({

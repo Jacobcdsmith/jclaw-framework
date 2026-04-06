@@ -14,7 +14,7 @@ A local-first LLM runtime that treats LLM APIs as a persistent, automated runtim
 
 - `src/gate/` - Core WebSocket + Express gate server (serves the dashboard at `/`)
 - `src/cli/` - CLI entry point using `commander`
-- `src/storage/` - SQLite persistence layer (sessions, messages, prompts, templates)
+- `src/storage/` - SQLite persistence layer (sessions, messages, prompts, templates, config, sandbox enforcement)
 - `src/providers/` - LLM provider adapters (Anthropic, OpenAI-compatible, Ollama, LM Studio)
 - `src/runtime/` - Core business logic (chat, context management, output piping)
 - `src/mcp/` - MCP support: server (jclaw as MCP server), client-manager (connects to external MCP servers), shared types
@@ -51,6 +51,7 @@ Pages:
 - **Templates** - Session configuration templates (expandable cards)
 - **Providers** - Per-provider config: API key entry (masked), base URL, Test Connection, available models list
 - **MCP** - MCP server management: add/edit/delete/enable server configs, view connection status, list available tools
+- **Sandbox** - Prompt sandbox: master enable/disable toggle, system prompt prefix/suffix injection (server-level), client override blocking, injection pattern protection, custom blocked phrases
 - **Search** - Full-text search across all session messages (FTS5)
 
 The frontend communicates with the gate using the existing JSON-RPC WebSocket protocol.
@@ -67,6 +68,8 @@ Config file: `~/.jclaw/config.json`
 
 - Anthropic (Claude models)
 - OpenAI (and compatible APIs)
+- Groq (OpenAI-compatible)
+- Google Gemini (OpenAI-compatible endpoint)
 - Ollama (local, OpenAI-compatible)
 - LM Studio (local, OpenAI-compatible)
 

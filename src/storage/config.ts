@@ -7,11 +7,30 @@ import type { McpServerConfig } from "../mcp/types.js";
 const CONFIG_DIR = join(homedir(), ".jclaw");
 const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 
+export interface SandboxConfig {
+  enabled: boolean;
+  systemPromptPrefix?: string;
+  systemPromptSuffix?: string;
+  allowSystemPromptOverride: boolean;
+  injectionProtection: boolean;
+  blockedPhrases?: string[];
+}
+
+export const DEFAULT_SANDBOX: SandboxConfig = {
+  enabled: false,
+  systemPromptPrefix: "",
+  systemPromptSuffix: "",
+  allowSystemPromptOverride: true,
+  injectionProtection: false,
+  blockedPhrases: []
+};
+
 export interface JclawConfig {
   providers?: ProviderConfig;
   mcp?: {
     servers?: McpServerConfig[];
   };
+  sandbox?: Partial<SandboxConfig>;
 }
 
 export function readConfig(): JclawConfig {
