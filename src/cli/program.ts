@@ -55,7 +55,7 @@ async function callJclawStream(method: string, params: unknown, port: number): P
 }
 
 function port(opts: { port?: string }): number {
-  return Number(opts.port ?? 18789);
+  return Number(opts.port ?? process.env.JCLAW_PORT ?? 5000);
 }
 function printJson(v: unknown) { console.log(JSON.stringify(v, null, 2)); }
 function buildBar(pct: number, width = 40): string {
@@ -74,14 +74,14 @@ export function buildJclawCli() {
   // ── gate ──────────────────────────────────────────────────────────────────
   program.command("gate")
     .description("Start the jclaw gate server")
-    .option("-p, --port <port>", "Port", "18789")
+    .option("-p, --port <port>", "Port", "5000")
     .action(async (opts) => { await startJclawGate({ port: Number(opts.port) }); });
 
   // ── sessions ──────────────────────────────────────────────────────────────
   const sessions = program.command("sessions").description("Manage sessions");
 
   sessions.command("list")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .option("--all", "Include archived")
     .action(async (opts) => {
       const r = await callJclaw<{ sessions: unknown[] }>("sessions.list", { includeArchived: opts.all ?? false }, port(opts));
@@ -89,7 +89,7 @@ export function buildJclawCli() {
     });
 
   sessions.command("start")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .option("--label <label>")
     .option("--model <model>")
     .option("--provider <provider>")
@@ -111,14 +111,14 @@ export function buildJclawCli() {
     });
 
   sessions.command("get <sessionId>")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (sessionId, opts) => {
       const r = await callJclaw<{ session: unknown }>("sessions.get", { sessionId }, port(opts));
       printJson(r.session);
     });
 
   sessions.command("update <sessionId>")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .option("--label <label>")
     .option("--model <model>")
     .option("--provider <provider>")
@@ -138,14 +138,14 @@ export function buildJclawCli() {
     });
 
   sessions.command("branches <sessionId>")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (sessionId, opts) => {
       const r = await callJclaw<{ branches: unknown[] }>("sessions.branches", { sessionId }, port(opts));
       printJson(r.branches);
     });
 
   sessions.command("stats")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .option("--session <sessionId>", "Limit to one session")
     .action(async (opts) => {
       const r = await callJclaw<unknown>("sessions.stats", { sessionId: opts.session }, port(opts));
@@ -153,7 +153,7 @@ export function buildJclawCli() {
     });
 
   sessions.command("export <sessionId>")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .option("--format <format>", "json|jsonl|markdown", "json")
     .action(async (sessionId, opts) => {
       const r = await callJclaw<{ output: string }>("sessions.export", { sessionId, format: opts.format }, port(opts));
@@ -162,7 +162,7 @@ export function buildJclawCli() {
 
   // ── messages ──────────────────────────────────────────────────────────────
   program.command("messages <sessionId>")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (sessionId, opts) => {
       const r = await callJclaw<{ messages: unknown[] }>("messages.list", { sessionId }, port(opts));
       printJson(r.messages);
@@ -170,14 +170,14 @@ export function buildJclawCli() {
 
   program.command("pin <messageId>")
     .description("Pin a message (always included in context)")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (messageId, opts) => {
       await callJclaw("messages.pin", { messageId }, port(opts));
       console.log(`Pinned: ${messageId}`);
     });
 
   program.command("unpin <messageId>")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (messageId, opts) => {
       await callJclaw("messages.unpin", { messageId }, port(opts));
       console.log(`Unpinned: ${messageId}`);
@@ -185,7 +185,7 @@ export function buildJclawCli() {
 
   program.command("rate <messageId> <rating>")
     .description("Rate a message 1-5 (0 to clear)")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (messageId, rating, opts) => {
       const r = Number(rating);
       await callJclaw("messages.rate", { messageId, rating: r === 0 ? null : r }, port(opts));
@@ -195,7 +195,7 @@ export function buildJclawCli() {
   // ── search ────────────────────────────────────────────────────────────────
   program.command("search <query>")
     .description("Full-text search across all message history")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .option("--session <sessionId>", "Limit to one session")
     .option("--limit <n>", "Max results", "20")
     .action(async (query, opts) => {
@@ -210,7 +210,7 @@ export function buildJclawCli() {
 
   chat.command("send <sessionId>")
     .description("Send a message")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .requiredOption("-m, --message <text>")
     .option("--role <role>", "user|assistant", "user")
     .option("--model <spec>", "Override model")
@@ -247,7 +247,7 @@ export function buildJclawCli() {
     });
 
   chat.command("context <sessionId>")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (sessionId, opts) => {
       const r = await callJclaw<{ used: number; limit: number; remaining: number; pct: number; model: string; costUsd: number }>(
         "chat.context", { sessionId }, port(opts));
@@ -259,7 +259,7 @@ export function buildJclawCli() {
     });
 
   chat.command("fork <sourceSessionId> <branchPointMsgId>")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .option("--label <label>")
     .option("-m, --message <text>", "First message in the fork")
     .option("--model <spec>")
@@ -276,7 +276,7 @@ export function buildJclawCli() {
 
   chat.command("regen <sessionId> <assistantMsgId>")
     .description("Regenerate an assistant message and show diff")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .option("--model <spec>")
     .option("--temp <temperature>")
     .option("--diff-mode <mode>", "words|lines", "words")
@@ -292,7 +292,7 @@ export function buildJclawCli() {
     });
 
   chat.command("diff")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .requiredOption("--a <text>")
     .requiredOption("--b <text>")
     .option("--mode <mode>", "words|lines", "words")
@@ -303,7 +303,7 @@ export function buildJclawCli() {
 
   chat.command("compare <sessionId>")
     .description("Run one prompt across multiple models and diff the results")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .requiredOption("-m, --message <text>")
     .requiredOption("--models <specs>", "Comma-separated model specs")
     .option("--temp <temperature>")
@@ -336,7 +336,7 @@ export function buildJclawCli() {
 
   chat.command("summarize <sessionId>")
     .description("Manually trigger context summarization")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (sessionId, opts) => {
       const r = await callJclaw<{ summaryMessage: { content: string } }>("chat.summarize", { sessionId }, port(opts));
       console.log("[summary]"); console.log(r.summaryMessage.content);
@@ -346,7 +346,7 @@ export function buildJclawCli() {
   const providers = program.command("providers").description("Manage LLM providers");
 
   providers.command("list")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (opts) => {
       const r = await callJclaw<{ providers: unknown[] }>("providers.list", {}, port(opts));
       printJson(r.providers);
@@ -354,7 +354,7 @@ export function buildJclawCli() {
 
   providers.command("ping")
     .description("Ping all providers and show latency")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (opts) => {
       const r = await callJclaw<{ providers: Array<{ name: string; displayName: string; ok: boolean; latencyMs: number | null; error?: string }> }>(
         "providers.ping", {}, port(opts));
@@ -367,7 +367,7 @@ export function buildJclawCli() {
     });
 
   providers.command("models <provider>")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (provider, opts) => {
       const r = await callJclaw<{ models: string[] }>("providers.models", { provider }, port(opts));
       r.models.forEach((m) => console.log(m));
@@ -377,14 +377,14 @@ export function buildJclawCli() {
   const prompts = program.command("prompts").description("Prompt library");
 
   prompts.command("list")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (opts) => {
       const r = await callJclaw<{ prompts: unknown[] }>("prompts.list", {}, port(opts));
       printJson(r.prompts);
     });
 
   prompts.command("save <name>")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .requiredOption("-c, --content <text>")
     .option("--description <desc>")
     .option("--tags <tags>", "Comma-separated tags")
@@ -397,28 +397,28 @@ export function buildJclawCli() {
     });
 
   prompts.command("get <name>")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (name, opts) => {
       const r = await callJclaw<{ prompt: { content: string } }>("prompts.get", { name }, port(opts));
       console.log(r.prompt.content);
     });
 
   prompts.command("delete <name>")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (name, opts) => {
       await callJclaw("prompts.delete", { name }, port(opts));
       console.log(`Deleted: ${name}`);
     });
 
   prompts.command("vars <name>")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (name, opts) => {
       const r = await callJclaw<{ variables: string[] }>("prompts.variables", { name }, port(opts));
       r.variables.forEach((v) => console.log(`{{${v}}}`));
     });
 
   prompts.command("render <name>")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .option("--var <assignments...>", "key=value assignments")
     .action(async (name, opts) => {
       const variables: Record<string, string> = {};
@@ -435,14 +435,14 @@ export function buildJclawCli() {
   const templates = program.command("templates").description("Session templates");
 
   templates.command("list")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (opts) => {
       const r = await callJclaw<{ templates: unknown[] }>("templates.list", {}, port(opts));
       printJson(r.templates);
     });
 
   templates.command("save <name>")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .option("--model <model>")
     .option("--provider <provider>")
     .option("--system <prompt>")
@@ -464,34 +464,34 @@ export function buildJclawCli() {
     });
 
   templates.command("get <name>")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (name, opts) => {
       const r = await callJclaw<{ template: unknown }>("templates.get", { name }, port(opts));
       printJson(r.template);
     });
 
   templates.command("delete <name>")
-    .option("-p, --port <port>", "Gateway port", "18789")
+    .option("-p, --port <port>", "Gateway port", "5000")
     .action(async (name, opts) => {
       await callJclaw("templates.delete", { name }, port(opts));
       console.log(`Deleted: ${name}`);
     });
 
   // ── legacy aliases ────────────────────────────────────────────────────────
-  program.command("sessions:list").option("-p, --port <port>", "Gateway port", "18789")
+  program.command("sessions:list").option("-p, --port <port>", "Gateway port", "5000")
     .action(async (opts) => {
       const r = await callJclaw<{ sessions: unknown[] }>("sessions.list", {}, port(opts));
       printJson(r.sessions);
     });
 
-  program.command("sessions:start").option("-p, --port <port>", "Gateway port", "18789")
+  program.command("sessions:start").option("-p, --port <port>", "Gateway port", "5000")
     .option("--label <label>").option("--model <model>")
     .action(async (opts) => {
       const r = await callJclaw<{ session: unknown }>("sessions.start", { label: opts.label, model: opts.model }, port(opts));
       printJson(r.session);
     });
 
-  program.command("agent:echo").option("-p, --port <port>", "Gateway port", "18789")
+  program.command("agent:echo").option("-p, --port <port>", "Gateway port", "5000")
     .option("--session <sessionId>").requiredOption("-m, --message <text>")
     .action(async (opts) => {
       const r = await callJclaw<{ output: string }>("agent.echo", { sessionId: opts.session, input: opts.message }, port(opts));
