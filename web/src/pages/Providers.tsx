@@ -29,11 +29,13 @@ const PROVIDER_DEFS = [
 
 type ProviderName = typeof PROVIDER_DEFS[number]["name"];
 
+type EditMap = Record<string, { apiKey?: string; baseUrl?: string }>;
+
 export default function Providers() {
   const [config, setConfig] = useState<AllProviderConfig | null>(null);
   const [pingResults, setPingResults] = useState<Record<string, PingResult>>({});
   const [models, setModels] = useState<Record<string, string[] | null>>({});
-  const [editing, setEditing] = useState<Record<string, { apiKey?: string; baseUrl?: string }>>({});
+  const [editing, setEditing] = useState<EditMap>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [pinging, setPinging] = useState<Record<string, boolean>>({});
   const [loadingModels, setLoadingModels] = useState<Record<string, boolean>>({});
@@ -44,6 +46,7 @@ export default function Providers() {
 
   useEffect(() => {
     loadConfig();
+    pingAll();
   }, []);
 
   async function loadConfig() {
@@ -52,6 +55,12 @@ export default function Providers() {
       setConfig(r.providers);
     } catch (e: unknown) {
       setError(String(e));
+    }
+  }
+
+  async function pingAll() {
+    for (const { name } of PROVIDER_DEFS) {
+      pingOne(name);
     }
   }
 
@@ -129,7 +138,11 @@ export default function Providers() {
     });
   }
 
-  const isDirty = (name: ProviderName) => Boolean(editing[name] && Object.keys(editing[name]).some((k) => editing[name][k as "apiKey" | "baseUrl"] !== undefined && editing[name][k as "apiKey" | "baseUrl"] !== ""));
+  function isDirty(name: ProviderName): boolean {
+    const ed = editing[name];
+    if (!ed) return false;
+    return ed.apiKey !== undefined || ed.baseUrl !== undefined;
+  }
 
   return (
     <div>
@@ -145,7 +158,7 @@ export default function Providers() {
           const isVisible = showModels[name];
 
           let dotClass = "checking";
-          if (ping) dotClass = ping.ok ? "ok" : "err";
+          if (!pinging[name] && ping) dotClass = ping.ok ? "ok" : "err";
 
           return (
             <div key={name} className="provider-panel">
@@ -163,7 +176,7 @@ export default function Providers() {
                         ? ping.ok
                           ? `online \u2014 ${ping.latencyMs}ms`
                           : `offline \u2014 ${ping.error ?? "unreachable"}`
-                        : "status unknown \u2014 click test"}
+                        : "connecting..."}
                   </div>
                 </div>
                 {hasApiKey && cfg && (
@@ -203,7 +216,7 @@ export default function Providers() {
                       <input
                         className="trek-input"
                         type={showKey[name] ? "text" : "password"}
-                        placeholder={cfg.hasKey ? "Enter new key to replace..." : "Paste API key here..."}
+                        placeholder={cfg.hasKey ? "Enter new key to replace (or clear)..." : "Paste API key here..."}
                         value={editing[name]?.apiKey ?? ""}
                         onChange={(e) => setField(name, "apiKey", e.target.value)}
                         autoComplete="off"

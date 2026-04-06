@@ -3,11 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { call } from "../ws.ts";
 
 interface SearchResult {
-  id: string;
-  session_id: string;
+  messageId: string;
+  sessionId: string;
   role: "user" | "assistant" | "system";
-  content: string;
-  created_at: number;
+  snippet: string;
+  rank: number;
 }
 
 export default function Search() {
@@ -82,16 +82,15 @@ export default function Search() {
 
       {results.map((r) => (
         <div
-          key={r.id}
+          key={r.messageId}
           className="search-result"
-          onClick={() => navigate(`/sessions/${r.session_id}`)}
+          onClick={() => navigate(`/sessions/${r.sessionId}`)}
         >
           <div className="search-result-meta">
             <span className={"badge badge-" + r.role}>{r.role}</span>
-            <span>session: {r.session_id.slice(0, 12)}&hellip;</span>
-            <span>{new Date(r.created_at).toLocaleString()}</span>
+            <span>session: {r.sessionId.slice(0, 12)}&hellip;</span>
           </div>
-          <div className="search-snippet">{r.content}</div>
+          <div className="search-snippet">{r.snippet}</div>
         </div>
       ))}
     </div>
