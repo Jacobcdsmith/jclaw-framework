@@ -457,6 +457,8 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       const merged = mergeWithEnv(stored);
       const anthKey = stored.providers?.anthropic?.apiKey ?? process.env.ANTHROPIC_API_KEY;
       const oaiKey = stored.providers?.openai?.apiKey ?? process.env.OPENAI_API_KEY;
+      const groqKey = stored.providers?.groq?.apiKey ?? process.env.GROQ_API_KEY;
+      const geminiKey = stored.providers?.gemini?.apiKey ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY;
       return ok(req.id, {
         providers: {
           anthropic: {
@@ -481,6 +483,18 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
             keyMasked: null,
             baseUrl: merged.lmstudio?.baseUrl ?? "http://127.0.0.1:1234/v1",
             source: "none"
+          },
+          groq: {
+            hasKey: Boolean(groqKey),
+            keyMasked: maskKey(groqKey),
+            source: stored.providers?.groq?.apiKey ? "file" : (process.env.GROQ_API_KEY ? "env" : "none")
+          },
+          gemini: {
+            hasKey: Boolean(geminiKey),
+            keyMasked: maskKey(geminiKey),
+            source: stored.providers?.gemini?.apiKey ? "file" : (
+              (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) ? "env" : "none"
+            )
           }
         }
       });
@@ -510,6 +524,12 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       } else if (providerName === "lmstudio") {
         const url = str(p.baseUrl);
         current.lmstudio = { ...current.lmstudio, ...(url !== undefined ? { baseUrl: url || undefined } : {}) };
+      } else if (providerName === "groq") {
+        const key = str(p.apiKey);
+        current.groq = { ...current.groq, ...(key !== undefined ? { apiKey: key || undefined } : {}) };
+      } else if (providerName === "gemini") {
+        const key = str(p.apiKey);
+        current.gemini = { ...current.gemini, ...(key !== undefined ? { apiKey: key || undefined } : {}) };
       } else {
         return err(req.id, `Unknown provider: ${providerName}`);
       }
@@ -533,6 +553,16 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
         ctx.runtime.providers.register(createOpenAiCompatProvider({
           providerName: "lmstudio", displayName: "LM Studio", defaultModel: "local-model",
           apiKey: "lm-studio", baseURL: merged.lmstudio?.baseUrl ?? "http://127.0.0.1:1234/v1"
+        }));
+      } else if (providerName === "groq") {
+        ctx.runtime.providers.register(createOpenAiCompatProvider({
+          providerName: "groq", displayName: "Groq", defaultModel: "llama-3.3-70b-versatile",
+          apiKey: merged.groq?.apiKey, baseURL: "https://api.groq.com/openai/v1"
+        }));
+      } else if (providerName === "gemini") {
+        ctx.runtime.providers.register(createOpenAiCompatProvider({
+          providerName: "gemini", displayName: "Google Gemini", defaultModel: "gemini-2.0-flash",
+          apiKey: merged.gemini?.apiKey, baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/"
         }));
       }
 

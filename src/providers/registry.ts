@@ -56,6 +56,30 @@ export function initProviderRegistry(
     })
   );
 
+  // Groq (OpenAI-compatible, cloud inference)
+  providers.set(
+    "groq",
+    createOpenAiCompatProvider({
+      providerName: "groq",
+      displayName: "Groq",
+      defaultModel: "llama-3.3-70b-versatile",
+      apiKey: config.groq?.apiKey,
+      baseURL: "https://api.groq.com/openai/v1"
+    })
+  );
+
+  // Gemini (OpenAI-compatible endpoint from Google)
+  providers.set(
+    "gemini",
+    createOpenAiCompatProvider({
+      providerName: "gemini",
+      displayName: "Google Gemini",
+      defaultModel: "gemini-2.0-flash",
+      apiKey: config.gemini?.apiKey,
+      baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/"
+    })
+  );
+
   return {
     get(name) {
       return providers.get(name);
@@ -87,6 +111,7 @@ export function resolveProviderAndModel(
   if (spec.startsWith("claude-")) return { provider: "anthropic", model: spec };
   if (spec.startsWith("gpt-") || spec.startsWith("o1") || spec.startsWith("o3"))
     return { provider: "openai", model: spec };
+  if (spec.startsWith("gemini-")) return { provider: "gemini", model: spec };
 
   return { provider: defaultProvider, model: spec };
 }

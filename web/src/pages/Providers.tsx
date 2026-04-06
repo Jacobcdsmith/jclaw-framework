@@ -23,6 +23,8 @@ interface PingResult {
 const PROVIDER_DEFS = [
   { name: "anthropic", label: "Anthropic / Claude", hasApiKey: true, hasBaseUrl: false },
   { name: "openai", label: "OpenAI / GPT", hasApiKey: true, hasBaseUrl: true },
+  { name: "groq", label: "Groq", hasApiKey: true, hasBaseUrl: false },
+  { name: "gemini", label: "Google Gemini", hasApiKey: true, hasBaseUrl: false },
   { name: "ollama", label: "Ollama (local)", hasApiKey: false, hasBaseUrl: true },
   { name: "lmstudio", label: "LM Studio (local)", hasApiKey: false, hasBaseUrl: true },
 ] as const;

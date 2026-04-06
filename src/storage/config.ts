@@ -42,6 +42,12 @@ export function mergeWithEnv(config: JclawConfig): ProviderConfig {
     },
     lmstudio: {
       baseUrl: pc.lmstudio?.baseUrl
+    },
+    groq: {
+      apiKey: pc.groq?.apiKey ?? process.env.GROQ_API_KEY
+    },
+    gemini: {
+      apiKey: pc.gemini?.apiKey ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_API_KEY
     }
   };
 }

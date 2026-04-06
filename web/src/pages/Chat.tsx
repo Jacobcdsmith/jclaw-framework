@@ -25,6 +25,8 @@ interface MessageRow {
 const PROVIDER_MODELS: Record<string, string[]> = {
   anthropic: ["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"],
   openai: ["gpt-4o", "gpt-4o-mini", "gpt-3.5-turbo"],
+  groq: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768", "gemma2-9b-it", "llama3-70b-8192"],
+  gemini: ["gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash-thinking-exp"],
   ollama: ["llama3.2", "llama3.1", "mistral", "phi3"],
   lmstudio: ["local-model"],
 };

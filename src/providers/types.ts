@@ -1,4 +1,4 @@
-export type ProviderName = "anthropic" | "openai" | "ollama" | "lmstudio";
+export type ProviderName = "anthropic" | "openai" | "ollama" | "lmstudio" | "groq" | "gemini";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -46,4 +46,6 @@ export interface ProviderConfig {
   openai?: { apiKey?: string; baseUrl?: string };
   ollama?: { baseUrl?: string };
   lmstudio?: { baseUrl?: string };
+  groq?: { apiKey?: string };
+  gemini?: { apiKey?: string };
 }
