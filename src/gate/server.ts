@@ -7,6 +7,7 @@ import { initPluginRegistry } from "../plugins/registry.js";
 import { initSessionStore } from "./sessions.js";
 import { handleWsConnection } from "./protocol.js";
 import { initProviderRegistry } from "../providers/registry.js";
+import { readConfig, mergeWithEnv } from "../storage/config.js";
 import type { ProviderConfig } from "../providers/types.js";
 import type { ChatRuntime } from "../runtime/chat.js";
 
@@ -23,7 +24,19 @@ export async function startJclawGate(options: JclawGateOptions) {
 
   const plugins = initPluginRegistry();
   const sessions = initSessionStore();
-  const providers = initProviderRegistry(options.providerConfig ?? {});
+
+  const fileConfig = readConfig();
+  const fileProviderConfig = mergeWithEnv(fileConfig);
+  const providerConfig: ProviderConfig = options.providerConfig
+    ? {
+        anthropic: options.providerConfig.anthropic ?? fileProviderConfig.anthropic,
+        openai: options.providerConfig.openai ?? fileProviderConfig.openai,
+        ollama: options.providerConfig.ollama ?? fileProviderConfig.ollama,
+        lmstudio: options.providerConfig.lmstudio ?? fileProviderConfig.lmstudio
+      }
+    : fileProviderConfig;
+
+  const providers = initProviderRegistry(providerConfig);
 
   const runtime: ChatRuntime = { providers };
 

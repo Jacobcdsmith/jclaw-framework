@@ -22,7 +22,7 @@ A local-first LLM runtime that treats LLM APIs as a persistent, automated runtim
 - `src/plugins/` - Plugin registry
 - `dist/` - Compiled gate server output (from `npm run build`)
 - `web/` - React + Vite dashboard frontend
-  - `web/src/` - React components (Overview, Sessions, SessionDetail, Prompts, Templates)
+    - `web/src/` - React components (Overview, Sessions, SessionDetail, Prompts, Templates, Providers, Search)
   - `web/src/ws.ts` - WebSocket JSON-RPC client
   - `web/dist/` - Built dashboard (served by Express at `/`)
 
@@ -40,24 +40,33 @@ The "Start application" workflow:
 
 ## Dashboard
 
-The web dashboard is a React SPA served from the same Express server as the gate.
+The web dashboard is a React SPA with a **Star Trek / LCARS terminal** aesthetic (deep black, amber + cyan accents, monospace font, CRT scanlines). Served from the same Express server as the gate.
+
 Pages:
 - **Overview** - Session stats and live provider health pings
-- **Sessions** - List of all sessions with token/cost info
+- **Sessions** - Sortable list of all sessions with token/cost info
 - **Session Detail** - Full message thread for a session
-- **Prompts** - Saved system prompts
-- **Templates** - Session configuration templates
+- **Prompts** - Saved system prompts (expandable cards)
+- **Templates** - Session configuration templates (expandable cards)
+- **Providers** - Per-provider config: API key entry (masked), base URL, Test Connection, available models list
+- **Search** - Full-text search across all session messages (FTS5)
 
 The frontend communicates with the gate using the existing JSON-RPC WebSocket protocol.
+
+## Provider Config
+
+Provider API keys can be configured via:
+1. **The Providers dashboard page** — type and save via `config.set` RPC method (persists to `~/.jclaw/config.json`, re-initializes provider in-memory instantly)
+2. **Environment variables** — `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (fallback if not in config file)
+
+Config file: `~/.jclaw/config.json`
 
 ## LLM Providers Supported
 
 - Anthropic (Claude models)
 - OpenAI (and compatible APIs)
-- Ollama (local)
-- LM Studio (local)
-
-Provider API keys should be configured via environment variables (e.g., `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`).
+- Ollama (local, OpenAI-compatible)
+- LM Studio (local, OpenAI-compatible)
 
 ## Port
 

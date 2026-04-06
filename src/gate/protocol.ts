@@ -36,6 +36,9 @@ import {
   getTemplateByName,
   deleteTemplate
 } from "../storage/templates.js";
+import { readConfig, writeConfig, mergeWithEnv, maskKey } from "../storage/config.js";
+import { createAnthropicProvider } from "../providers/anthropic.js";
+import { createOpenAiCompatProvider } from "../providers/openai-compat.js";
 import type { PipeTarget } from "../runtime/pipeline.js";
 import type { ProviderName } from "../providers/types.js";
 
@@ -335,9 +338,14 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       });
 
     case "providers.ping": {
+      const singleName = str(p.provider);
+      const providerList = singleName
+        ? (() => { const found = ctx.runtime.providers.get(singleName as ProviderName); return found ? [found] : []; })()
+        : ctx.runtime.providers.list();
+
       const results = await Promise.allSettled(
-        ctx.runtime.providers.list().map(async (provider) => {
-          if (!provider.ping) return { name: provider.name, ok: false, latencyMs: null, error: "no ping" };
+        providerList.map(async (provider) => {
+          if (!provider.ping) return { name: provider.name, displayName: provider.displayName, ok: false, latencyMs: null, error: "no ping" };
           try {
             const latencyMs = await provider.ping();
             return { name: provider.name, displayName: provider.displayName, ok: true, latencyMs };
@@ -441,6 +449,94 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       if (!template) return err(req.id, `Template not found: ${name}`);
       deleteTemplate(template.id);
       return ok(req.id, { deleted: name });
+    }
+
+    // ── config ────────────────────────────────────────────────────────────────
+    case "config.get": {
+      const stored = readConfig();
+      const merged = mergeWithEnv(stored);
+      const anthKey = stored.providers?.anthropic?.apiKey ?? process.env.ANTHROPIC_API_KEY;
+      const oaiKey = stored.providers?.openai?.apiKey ?? process.env.OPENAI_API_KEY;
+      return ok(req.id, {
+        providers: {
+          anthropic: {
+            hasKey: Boolean(anthKey),
+            keyMasked: maskKey(anthKey),
+            source: stored.providers?.anthropic?.apiKey ? "file" : (process.env.ANTHROPIC_API_KEY ? "env" : "none")
+          },
+          openai: {
+            hasKey: Boolean(oaiKey),
+            keyMasked: maskKey(oaiKey),
+            baseUrl: merged.openai?.baseUrl,
+            source: stored.providers?.openai?.apiKey ? "file" : (process.env.OPENAI_API_KEY ? "env" : "none")
+          },
+          ollama: {
+            hasKey: false,
+            keyMasked: null,
+            baseUrl: merged.ollama?.baseUrl ?? "http://127.0.0.1:11434/v1",
+            source: "none"
+          },
+          lmstudio: {
+            hasKey: false,
+            keyMasked: null,
+            baseUrl: merged.lmstudio?.baseUrl ?? "http://127.0.0.1:1234/v1",
+            source: "none"
+          }
+        }
+      });
+    }
+
+    case "config.set": {
+      const providerName = requireStr(req.id, p.provider, "provider");
+      if (typeof providerName !== "string") return providerName;
+
+      const stored = readConfig();
+      const current = stored.providers ?? {};
+
+      if (providerName === "anthropic") {
+        const key = str(p.apiKey);
+        current.anthropic = { ...current.anthropic, ...(key !== undefined ? { apiKey: key || undefined } : {}) };
+      } else if (providerName === "openai") {
+        const key = str(p.apiKey);
+        const url = str(p.baseUrl);
+        current.openai = {
+          ...current.openai,
+          ...(key !== undefined ? { apiKey: key || undefined } : {}),
+          ...(url !== undefined ? { baseUrl: url || undefined } : {})
+        };
+      } else if (providerName === "ollama") {
+        const url = str(p.baseUrl);
+        current.ollama = { ...current.ollama, ...(url !== undefined ? { baseUrl: url || undefined } : {}) };
+      } else if (providerName === "lmstudio") {
+        const url = str(p.baseUrl);
+        current.lmstudio = { ...current.lmstudio, ...(url !== undefined ? { baseUrl: url || undefined } : {}) };
+      } else {
+        return err(req.id, `Unknown provider: ${providerName}`);
+      }
+
+      writeConfig({ ...stored, providers: current });
+
+      const merged = mergeWithEnv({ providers: current });
+      if (providerName === "anthropic") {
+        ctx.runtime.providers.register(createAnthropicProvider(merged.anthropic?.apiKey));
+      } else if (providerName === "openai") {
+        ctx.runtime.providers.register(createOpenAiCompatProvider({
+          providerName: "openai", displayName: "OpenAI", defaultModel: "gpt-4o",
+          apiKey: merged.openai?.apiKey, baseURL: merged.openai?.baseUrl
+        }));
+      } else if (providerName === "ollama") {
+        ctx.runtime.providers.register(createOpenAiCompatProvider({
+          providerName: "ollama", displayName: "Ollama", defaultModel: "llama3.2",
+          apiKey: "ollama", baseURL: merged.ollama?.baseUrl ?? "http://127.0.0.1:11434/v1"
+        }));
+      } else if (providerName === "lmstudio") {
+        ctx.runtime.providers.register(createOpenAiCompatProvider({
+          providerName: "lmstudio", displayName: "LM Studio", defaultModel: "local-model",
+          apiKey: "lm-studio", baseURL: merged.lmstudio?.baseUrl ?? "http://127.0.0.1:1234/v1"
+        }));
+      }
+
+      return ok(req.id, { saved: true, provider: providerName });
     }
 
     // ── legacy ────────────────────────────────────────────────────────────────
