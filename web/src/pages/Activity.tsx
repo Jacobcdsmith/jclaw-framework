@@ -107,6 +107,7 @@ export default function Activity() {
     });
 
     loadStats();
+    loadMetricsTotal();
     const interval = setInterval(loadStats, 5000);
 
     return () => {
@@ -127,6 +128,14 @@ export default function Activity() {
     try {
       const r = await call<Stats>("sessions.stats");
       setStats(r);
+    } catch { }
+  }
+
+  async function loadMetricsTotal() {
+    try {
+      const r = await call<{ records: Array<{ outputTokens: number }> }>("metrics.list", { limit: 200 });
+      const total = r.records.reduce((acc, rec) => acc + (rec.outputTokens ?? 0), 0);
+      setMetricsTokenTotal(total);
     } catch { }
   }
 
