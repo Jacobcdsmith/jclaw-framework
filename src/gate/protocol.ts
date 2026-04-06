@@ -245,7 +245,7 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       const _costAfter = dbGetSession(sessionId)?.estimated_cost_usd ?? 0;
       const rec = recordMetric({
         provider: _am.provider ?? "unknown", model: _am.model ?? "unknown",
-        sessionId, startedAt: _sendStart, ttftMs: null, totalMs: _totalMs,
+        sessionId, startedAt: _sendStart, ttftMs: _totalMs, totalMs: _totalMs,
         inputTokens: _am.input_tokens ?? 0, outputTokens: _am.output_tokens ?? 0,
         estimatedCostUsd: Math.max(0, _costAfter - _costBefore)
       });

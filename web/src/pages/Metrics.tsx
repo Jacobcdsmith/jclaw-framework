@@ -194,7 +194,11 @@ function useLoopDetector() {
 
   const addToken = useCallback((token: string) => {
     if (!token) return;
-    tokenWindow.current.push(token);
+    // Tokenize on whitespace boundaries to get word-level tokens for 3-gram analysis
+    const words = token.split(/(\s+)/).filter((w) => w.trim().length > 0);
+    for (const w of words) {
+      tokenWindow.current.push(w);
+    }
     if (tokenWindow.current.length > 200) {
       tokenWindow.current = tokenWindow.current.slice(-200);
     }
@@ -208,7 +212,7 @@ function useLoopDetector() {
       counts.set(gram, n);
       if (n > 5) {
         setLoopDetected(true);
-        setLoopPattern(JSON.stringify((toks[i] + toks[i + 1] + toks[i + 2]).slice(0, 40)));
+        setLoopPattern(JSON.stringify((toks[i] + " " + toks[i + 1] + " " + toks[i + 2]).slice(0, 40)));
         return;
       }
     }
@@ -325,13 +329,13 @@ export default function Metrics() {
       }
     });
 
-    // 1-second sampler for token throughput
+    // 1-second sampler for token throughput — true per-second bins
     const tokenSampler = setInterval(() => {
       const now = Date.now();
       const w90 = tokenBucket.current.filter((t) => now - t.ts < 90_000);
       tokenBucket.current = w90;
-      const w5 = w90.filter((t) => now - t.ts < 5_000);
-      const rate = w5.reduce((a, b) => a + b.count, 0) / 5;
+      // Count tokens received in the last 1 second = tok/s for this second
+      const rate = w90.filter((t) => now - t.ts < 1_000).reduce((a, b) => a + b.count, 0);
       setTokenRateNow(rate);
       setTokenRateSeries((prev) => {
         const next = [...prev, rate];
@@ -383,21 +387,25 @@ export default function Metrics() {
 
       {/* Loop detector alert */}
       {loopDetected && (
-        <div style={{
-          background: "rgba(200,50,50,0.12)", border: "1px solid var(--red)",
-          borderLeft: "4px solid var(--red)", padding: "10px 16px",
-          marginBottom: "14px", fontFamily: "var(--font)", fontSize: "11px",
-          letterSpacing: "0.12em", color: "var(--red)", display: "flex", alignItems: "center", gap: "10px"
-        }}>
-          <span>⚠ LOOP DETECTED — repeated 3-gram: {loopPattern}</span>
-          <button
-            className="trek-btn"
-            style={{ fontSize: "10px", padding: "2px 8px", borderColor: "var(--red)", color: "var(--red)", marginLeft: "auto" }}
-            onClick={resetLoop}
-          >
-            dismiss
-          </button>
-        </div>
+        <>
+          <style>{`@keyframes loop-flash { 0%,100% { opacity:1; border-color:var(--red); } 50% { opacity:0.55; border-color:transparent; } }`}</style>
+          <div style={{
+            background: "rgba(200,50,50,0.15)", border: "2px solid var(--red)",
+            borderLeft: "5px solid var(--red)", padding: "10px 16px",
+            marginBottom: "14px", fontFamily: "var(--font)", fontSize: "11px",
+            letterSpacing: "0.12em", color: "var(--red)", display: "flex", alignItems: "center", gap: "10px",
+            animation: "loop-flash 0.8s ease-in-out infinite"
+          }}>
+            <span>⚠ LOOP DETECTED — repeated word 3-gram: {loopPattern}</span>
+            <button
+              className="trek-btn"
+              style={{ fontSize: "10px", padding: "2px 8px", borderColor: "var(--red)", color: "var(--red)", marginLeft: "auto" }}
+              onClick={resetLoop}
+            >
+              dismiss
+            </button>
+          </div>
+        </>
       )}
 
       {/* Status strip */}
