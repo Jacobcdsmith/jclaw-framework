@@ -15,6 +15,9 @@ interface SessionRow {
   updated_at: number;
 }
 
+type SortKey = "updated_at" | "created_at" | "input_tokens" | "output_tokens" | "estimated_cost_usd" | "label" | "model" | "provider" | "status";
+type SortDir = "asc" | "desc";
+
 function fmtNum(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
   if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
@@ -25,11 +28,18 @@ function fmtDate(ts: number): string {
   return new Date(ts).toLocaleString();
 }
 
+function SortIcon({ col, sortKey, sortDir }: { col: SortKey; sortKey: SortKey; sortDir: SortDir }) {
+  if (col !== sortKey) return <span style={{ color: "var(--text3)", marginLeft: "4px" }}>⇅</span>;
+  return <span style={{ color: "var(--accent)", marginLeft: "4px" }}>{sortDir === "asc" ? "↑" : "↓"}</span>;
+}
+
 export default function Sessions() {
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [includeArchived, setIncludeArchived] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("updated_at");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -39,6 +49,36 @@ export default function Sessions() {
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [includeArchived]);
+
+  function handleSort(key: SortKey) {
+    if (key === sortKey) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  }
+
+  const sorted = [...sessions].sort((a, b) => {
+    const av = a[sortKey] ?? "";
+    const bv = b[sortKey] ?? "";
+    let cmp = 0;
+    if (typeof av === "number" && typeof bv === "number") cmp = av - bv;
+    else cmp = String(av).localeCompare(String(bv));
+    return sortDir === "asc" ? cmp : -cmp;
+  });
+
+  function th(label: string, key: SortKey) {
+    return (
+      <th
+        style={{ cursor: "pointer", userSelect: "none" }}
+        onClick={() => handleSort(key)}
+      >
+        {label}
+        <SortIcon col={key} sortKey={sortKey} sortDir={sortDir} />
+      </th>
+    );
+  }
 
   return (
     <div>
@@ -67,18 +107,18 @@ export default function Sessions() {
         <table className="table">
           <thead>
             <tr>
-              <th>Label / ID</th>
-              <th>Model</th>
-              <th>Provider</th>
-              <th>Status</th>
-              <th>Tokens In</th>
-              <th>Tokens Out</th>
-              <th>Cost</th>
-              <th>Updated</th>
+              {th("Label / ID", "label")}
+              {th("Model", "model")}
+              {th("Provider", "provider")}
+              {th("Status", "status")}
+              {th("Tokens In", "input_tokens")}
+              {th("Tokens Out", "output_tokens")}
+              {th("Cost", "estimated_cost_usd")}
+              {th("Updated", "updated_at")}
             </tr>
           </thead>
           <tbody>
-            {sessions.map((s) => (
+            {sorted.map((s) => (
               <tr key={s.id} onClick={() => navigate(`/sessions/${s.id}`)}>
                 <td>
                   <div style={{ fontWeight: 500 }}>{s.label ?? <span style={{ color: "var(--text3)" }}>Untitled</span>}</div>
