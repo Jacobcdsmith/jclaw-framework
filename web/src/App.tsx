@@ -27,10 +27,9 @@ export default function App() {
         )}
 
         <aside className={"sidebar" + (sidebarOpen ? " sidebar-open" : "")}>
-          <div className="sidebar-top-bar" />
           <div className="sidebar-logo">
-            JCLAW
-            <span>gate dashboard v2</span>
+            Jclaw
+            <span>Gate Dashboard v2</span>
           </div>
 
           <div className="sidebar-section-label">navigation</div>
@@ -67,7 +66,6 @@ export default function App() {
           </NavLink>
 
           <div className="sidebar-spacer" />
-          <div className="sidebar-bottom-bar" />
         </aside>
 
         <main className="main">
