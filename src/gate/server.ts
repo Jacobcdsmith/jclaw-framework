@@ -1,6 +1,8 @@
 import express from "express";
 import { WebSocketServer } from "ws";
 import { createServer } from "http";
+import { fileURLToPath } from "url";
+import { join, dirname } from "path";
 import { initPluginRegistry } from "../plugins/registry.js";
 import { initSessionStore } from "./sessions.js";
 import { handleWsConnection } from "./protocol.js";
@@ -12,6 +14,8 @@ export interface JclawGateOptions {
   port: number;
   providerConfig?: ProviderConfig;
 }
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 export async function startJclawGate(options: JclawGateOptions) {
   const app = express();
@@ -40,7 +44,13 @@ export async function startJclawGate(options: JclawGateOptions) {
     });
   });
 
-  httpServer.listen(options.port, () => {
+  const dashboardDir = join(__dirname, "../../web/dist");
+  app.use(express.static(dashboardDir));
+  app.get("*", (_req, res) => {
+    res.sendFile(join(dashboardDir, "index.html"));
+  });
+
+  httpServer.listen(options.port, "0.0.0.0", () => {
     console.log(`[JCLAW] Gate listening on port ${options.port}`);
     console.log(
       `[JCLAW] Providers: ${providers
@@ -48,11 +58,12 @@ export async function startJclawGate(options: JclawGateOptions) {
         .map((p) => p.displayName)
         .join(", ")}`
     );
+    console.log(`[JCLAW] Dashboard available at http://0.0.0.0:${options.port}`);
   });
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const port = Number(process.env.JCLAW_PORT ?? 18789);
+  const port = Number(process.env.JCLAW_PORT ?? 5000);
   startJclawGate({ port }).catch((err) => {
     console.error("[JCLAW] Gate failed to start", err);
     process.exit(1);

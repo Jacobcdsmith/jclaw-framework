@@ -21,19 +21,23 @@ args = "Start application"
 name = "Start application"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "JCLAW_PORT=3000 npm run dev:gate"
-waitForPort = 3000
-
-[workflows.workflow.metadata]
-outputType = "console"
+args = "cd web && npm run build && cd .. && JCLAW_PORT=5000 npm run dev:gate"
+waitForPort = 5000
 
 [[ports]]
 localPort = 3000
 externalPort = 3000
 
+[[ports]]
+localPort = 5000
+externalPort = 80
+
 [deployment]
 deploymentTarget = "vm"
 run = ["node", "dist/gate/server.js"]
-build = ["npm", "run", "build"]
+build = ["bash", "-c", "cd web && npm install && npm run build && cd ../ && npm run build"]
