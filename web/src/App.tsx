@@ -12,6 +12,7 @@ import Terminal from "./pages/Terminal.tsx";
 import Activity from "./pages/Activity.tsx";
 import Mcp from "./pages/Mcp.tsx";
 import Sandbox from "./pages/Sandbox.tsx";
+import Metrics from "./pages/Metrics.tsx";
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -57,6 +58,9 @@ export default function App() {
           <NavLink to="/activity" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">◉</span>Activity
           </NavLink>
+          <NavLink to="/metrics" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
+            <span className="nav-icon">◈</span>Metrics
+          </NavLink>
 
           <div className="sidebar-section-label" style={{ marginTop: "4px" }}>config</div>
           <NavLink to="/providers" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
@@ -99,6 +103,7 @@ export default function App() {
             <Route path="/sandbox" element={<Sandbox />} />
             <Route path="/mcp" element={<Mcp />} />
             <Route path="/search" element={<Search />} />
+            <Route path="/metrics" element={<Metrics />} />
           </Routes>
         </main>
       </div>

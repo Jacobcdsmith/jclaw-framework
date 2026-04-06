@@ -37,6 +37,7 @@ import {
   deleteTemplate
 } from "../storage/templates.js";
 import { readConfig, writeConfig, mergeWithEnv, maskKey, DEFAULT_SANDBOX, DEFAULT_REDTEAM } from "../storage/config.js";
+import { recordMetric, listMetrics, getStabilitySummary } from "../storage/metrics.js";
 import { createAnthropicProvider } from "../providers/anthropic.js";
 import { createOpenAiCompatProvider } from "../providers/openai-compat.js";
 import type { PipeTarget } from "../runtime/pipeline.js";
@@ -214,15 +215,39 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       const content = requireStr(req.id, p.content, "content");
       if (typeof content !== "string") return content;
 
-      const result = await sendMessage(ctx.runtime, {
-        sessionId, content,
-        role: (p.role as "user" | "assistant") ?? "user",
-        modelSpec: str(p.modelSpec),
-        temperature: num(p.temperature),
-        maxTokens: num(p.maxTokens),
-        systemPromptOverride: str(p.systemPromptOverride),
-        pipeTargets: p.pipeTargets as PipeTarget[] | undefined
+      const _sendStart = Date.now();
+      let result;
+      try {
+        result = await sendMessage(ctx.runtime, {
+          sessionId, content,
+          role: (p.role as "user" | "assistant") ?? "user",
+          modelSpec: str(p.modelSpec),
+          temperature: num(p.temperature),
+          maxTokens: num(p.maxTokens),
+          systemPromptOverride: str(p.systemPromptOverride),
+          pipeTargets: p.pipeTargets as PipeTarget[] | undefined
+        });
+      } catch (e) {
+        const _totalMs = Date.now() - _sendStart;
+        const rec = recordMetric({
+          provider: str(p.modelSpec)?.split(":")?.[0] ?? "unknown",
+          model: str(p.modelSpec) ?? "unknown",
+          sessionId, startedAt: _sendStart, ttftMs: null, totalMs: _totalMs,
+          inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0,
+          errorCode: (e instanceof Error ? e.message : String(e)).slice(0, 100)
+        });
+        ctx.socket.send(JSON.stringify({ type: "event", event: "metrics.sample", payload: rec }));
+        throw e;
+      }
+      const _totalMs = Date.now() - _sendStart;
+      const _am = result.assistantMessage;
+      const rec = recordMetric({
+        provider: _am.provider ?? "unknown", model: _am.model ?? "unknown",
+        sessionId, startedAt: _sendStart, ttftMs: null, totalMs: _totalMs,
+        inputTokens: _am.input_tokens ?? 0, outputTokens: _am.output_tokens ?? 0,
+        estimatedCostUsd: 0
       });
+      ctx.socket.send(JSON.stringify({ type: "event", event: "metrics.sample", payload: rec }));
       return ok(req.id, result);
     }
 
@@ -232,30 +257,52 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       const content = requireStr(req.id, p.content, "content");
       if (typeof content !== "string") return content;
 
-      const result = await sendMessageStream(ctx.runtime, {
-        sessionId, content,
-        role: (p.role as "user" | "assistant") ?? "user",
-        modelSpec: str(p.modelSpec),
-        temperature: num(p.temperature),
-        maxTokens: num(p.maxTokens),
-        systemPromptOverride: str(p.systemPromptOverride),
-        pipeTargets: p.pipeTargets as PipeTarget[] | undefined,
-        onToken: (token) => {
-          ctx.socket.send(JSON.stringify({
-            type: "event",
-            event: "chat.token",
-            payload: { sessionId, token }
-          }));
-        },
-        onToolStep: (step: ToolCallStep) => {
-          ctx.socket.send(JSON.stringify({
-            type: "event",
-            event: "chat.toolStep",
-            payload: { sessionId, step }
-          }));
-        }
+      const _streamStart = Date.now();
+      let _ttftMs: number | null = null;
+      let _streamResult;
+      try {
+        _streamResult = await sendMessageStream(ctx.runtime, {
+          sessionId, content,
+          role: (p.role as "user" | "assistant") ?? "user",
+          modelSpec: str(p.modelSpec),
+          temperature: num(p.temperature),
+          maxTokens: num(p.maxTokens),
+          systemPromptOverride: str(p.systemPromptOverride),
+          pipeTargets: p.pipeTargets as PipeTarget[] | undefined,
+          onToken: (token) => {
+            if (_ttftMs === null && token.length > 0) _ttftMs = Date.now() - _streamStart;
+            ctx.socket.send(JSON.stringify({
+              type: "event", event: "chat.token", payload: { sessionId, token }
+            }));
+          },
+          onToolStep: (step: ToolCallStep) => {
+            ctx.socket.send(JSON.stringify({
+              type: "event", event: "chat.toolStep", payload: { sessionId, step }
+            }));
+          }
+        });
+      } catch (e) {
+        const _totalMs = Date.now() - _streamStart;
+        const rec = recordMetric({
+          provider: str(p.modelSpec)?.split(":")?.[0] ?? "unknown",
+          model: str(p.modelSpec) ?? "unknown",
+          sessionId, startedAt: _streamStart, ttftMs: _ttftMs, totalMs: _totalMs,
+          inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0,
+          errorCode: (e instanceof Error ? e.message : String(e)).slice(0, 100)
+        });
+        ctx.socket.send(JSON.stringify({ type: "event", event: "metrics.sample", payload: rec }));
+        throw e;
+      }
+      const _totalMs = Date.now() - _streamStart;
+      const _am2 = _streamResult.assistantMessage;
+      const _rec2 = recordMetric({
+        provider: _am2.provider ?? "unknown", model: _am2.model ?? "unknown",
+        sessionId, startedAt: _streamStart, ttftMs: _ttftMs, totalMs: _totalMs,
+        inputTokens: _am2.input_tokens ?? 0, outputTokens: _am2.output_tokens ?? 0,
+        estimatedCostUsd: 0
       });
-      return ok(req.id, result);
+      ctx.socket.send(JSON.stringify({ type: "event", event: "metrics.sample", payload: _rec2 }));
+      return ok(req.id, _streamResult);
     }
 
     case "chat.fork": {
@@ -574,6 +621,76 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       }
 
       return ok(req.id, { saved: true, provider: providerName });
+    }
+
+    // ── metrics ───────────────────────────────────────────────────────────────
+    case "metrics.list": {
+      const limit = typeof p.limit === "number" ? p.limit : 100;
+      return ok(req.id, { records: listMetrics(limit) });
+    }
+
+    case "metrics.summary": {
+      return ok(req.id, { providers: getStabilitySummary() });
+    }
+
+    case "metrics.probe": {
+      const providerName = str(p.provider) ?? "anthropic";
+      const modelSpec = str(p.model);
+      const probeStart = Date.now();
+      let probeTtft: number | null = null;
+      const probeSession = startSession({
+        name: `probe-${Date.now()}`,
+        provider: providerName as ProviderName,
+        model: modelSpec ?? undefined
+      });
+      try {
+        const probeResult = await sendMessageStream(ctx.runtime, {
+          sessionId: probeSession.id,
+          content: "Reply with exactly one word: READY",
+          role: "user",
+          modelSpec: modelSpec ? `${providerName}:${modelSpec}` : undefined,
+          onToken: (token) => {
+            if (probeTtft === null && token.length > 0) probeTtft = Date.now() - probeStart;
+          }
+        });
+        const probeTotalMs = Date.now() - probeStart;
+        const probeAm = probeResult.assistantMessage;
+        const probeRec = recordMetric({
+          provider: probeAm.provider ?? providerName,
+          model: probeAm.model ?? modelSpec ?? "unknown",
+          sessionId: probeSession.id,
+          startedAt: probeStart,
+          ttftMs: probeTtft,
+          totalMs: probeTotalMs,
+          inputTokens: probeAm.input_tokens ?? 0,
+          outputTokens: probeAm.output_tokens ?? 0,
+          estimatedCostUsd: 0,
+          isProbe: true
+        });
+        ctx.socket.send(JSON.stringify({ type: "event", event: "metrics.sample", payload: probeRec }));
+        return ok(req.id, {
+          provider: probeAm.provider ?? providerName,
+          model: probeAm.model ?? "unknown",
+          ttftMs: probeTtft, totalMs: probeTotalMs,
+          inputTokens: probeAm.input_tokens ?? 0, outputTokens: probeAm.output_tokens ?? 0,
+          response: probeAm.content.slice(0, 120)
+        });
+      } catch (e) {
+        const probeTotalMs = Date.now() - probeStart;
+        const probeRec = recordMetric({
+          provider: providerName, model: modelSpec ?? "unknown",
+          sessionId: probeSession.id, startedAt: probeStart,
+          ttftMs: probeTtft, totalMs: probeTotalMs,
+          inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0,
+          errorCode: (e instanceof Error ? e.message : String(e)).slice(0, 100),
+          isProbe: true
+        });
+        ctx.socket.send(JSON.stringify({ type: "event", event: "metrics.sample", payload: probeRec }));
+        return ok(req.id, {
+          provider: providerName, error: e instanceof Error ? e.message : String(e),
+          ttftMs: null, totalMs: probeTotalMs
+        });
+      }
     }
 
     // ── sandbox ───────────────────────────────────────────────────────────────
