@@ -245,9 +245,14 @@ export function getDb(): Database.Database {
     END;
   `);
 
-  // Migrate existing DBs: add columns if they don't exist yet
+   // Migrate existing DBs: add columns if they don't exist yet
   migrate(_db);
-
+  // Seed built-in prompts on first run (deferred to avoid circular import issues)
+  setImmediate(() => {
+    import("./seed-prompts.js").then(({ seedPrompts }) => {
+      try { seedPrompts(); } catch (e) { /* non-fatal */ }
+    }).catch(() => { /* non-fatal */ });
+  });
   return _db;
 }
 
