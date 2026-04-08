@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { call } from "../ws.ts";
 
 interface SessionRow {
@@ -41,6 +41,7 @@ export default function Sessions() {
   const [sortKey, setSortKey] = useState<SortKey>("updated_at");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const navigate = useNavigate();
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     setLoading(true);
@@ -59,7 +60,18 @@ export default function Sessions() {
     }
   }
 
-  const sorted = [...sessions].sort((a, b) => {
+  const filtered = sessions.filter((s) => {
+    const q = search.toLowerCase();
+    if (!q) return true;
+    return (
+      (s.label ?? "").toLowerCase().includes(q) ||
+      (s.model ?? "").toLowerCase().includes(q) ||
+      (s.provider ?? "").toLowerCase().includes(q) ||
+      s.id.toLowerCase().includes(q)
+    );
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
     const av = a[sortKey] ?? "";
     const bv = b[sortKey] ?? "";
     let cmp = 0;
@@ -84,17 +96,36 @@ export default function Sessions() {
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
         <div className="page-title" style={{ marginBottom: 0 }}>Sessions</div>
-        <label style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text2)", cursor: "pointer" }}>
-          <input
-            type="checkbox"
-            checked={includeArchived}
-            onChange={(e) => setIncludeArchived(e.target.checked)}
-          />
-          Show archived
-        </label>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--text2)", cursor: "pointer", fontSize: "13px" }}>
+            <input
+              type="checkbox"
+              checked={includeArchived}
+              onChange={(e) => setIncludeArchived(e.target.checked)}
+            />
+            Show archived
+          </label>
+          <Link to="/chat" className="trek-btn primary" style={{ textDecoration: "none", fontSize: "12px" }}>+ New Session</Link>
+        </div>
       </div>
 
       {error && <div className="error-state">{error}</div>}
+
+      {!loading && sessions.length > 0 && (
+        <div style={{ marginBottom: "16px" }}>
+          <input
+            className="trek-input"
+            placeholder="Filter by label, model, provider, or ID..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
+            <div style={{ fontSize: "11px", color: "var(--text3)", marginTop: "6px" }}>
+              {sorted.length} of {sessions.length} sessions
+            </div>
+          )}
+        </div>
+      )}
 
       {loading ? (
         <div className="loading">Loading sessions...</div>

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route, NavLink } from "react-router-dom";
+import { onStatus } from "./ws.ts";
 import Overview from "./pages/Overview.tsx";
 import Sessions from "./pages/Sessions.tsx";
 import SessionDetail from "./pages/SessionDetail.tsx";
@@ -20,6 +21,9 @@ import EmbedSearch from "./pages/EmbedSearch.tsx";
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [connected, setConnected] = useState(false);
+
+  useEffect(() => onStatus((s) => setConnected(s)), []);
 
   function closeSidebar() {
     setSidebarOpen(false);
@@ -34,11 +38,22 @@ export default function App() {
 
         <aside className={"sidebar" + (sidebarOpen ? " sidebar-open" : "")}>
           <div className="sidebar-logo">
-            Jclaw
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span>Jclaw</span>
+              <span
+                title={connected ? "Gate connected" : "Gate disconnected"}
+                style={{
+                  width: "8px", height: "8px", borderRadius: "50%", flexShrink: 0,
+                  background: connected ? "var(--green)" : "var(--red)",
+                  boxShadow: connected ? "0 0 6px var(--green)" : "none",
+                  animation: connected ? "pulse-dot 2s ease-in-out infinite" : "none",
+                }}
+              />
+            </div>
             <span>Gate Dashboard v2</span>
           </div>
 
-          <div className="sidebar-section-label">navigation</div>
+          <div className="sidebar-section-label" style={{ marginTop: "8px" }}>library</div>
           <NavLink to="/" end className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">◈</span>Overview
           </NavLink>
@@ -52,7 +67,7 @@ export default function App() {
             <span className="nav-icon">◫</span>Templates
           </NavLink>
 
-          <div className="sidebar-section-label" style={{ marginTop: "4px" }}>live</div>
+          <div className="sidebar-section-label" style={{ marginTop: "8px" }}>live</div>
           <NavLink to="/chat" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">▶</span>Chat
           </NavLink>
@@ -66,7 +81,7 @@ export default function App() {
             <span className="nav-icon">◈</span>Metrics
           </NavLink>
 
-          <div className="sidebar-section-label" style={{ marginTop: "4px" }}>training</div>
+          <div className="sidebar-section-label" style={{ marginTop: "8px" }}>training</div>
           <NavLink to="/datasets" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">⊞</span>Datasets
           </NavLink>
@@ -80,7 +95,7 @@ export default function App() {
             <span className="nav-icon">⊛</span>Embed Search
           </NavLink>
 
-          <div className="sidebar-section-label" style={{ marginTop: "4px" }}>config</div>
+          <div className="sidebar-section-label" style={{ marginTop: "8px" }}>config</div>
           <NavLink to="/providers" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">⚙</span>Providers
           </NavLink>
