@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import type { LlmProvider, ChatRequest, ChatResponse, ProviderName, McpToolDefinition } from "./types.js";
+import type { LlmProvider, ChatRequest, ChatResponse, ProviderName, McpToolDefinition, EmbeddingResponse } from "./types.js";
 import type { ToolUseBlock } from "./types.js";
 
 export interface OpenAiCompatOptions {
@@ -166,6 +166,22 @@ export function createOpenAiCompatProvider(opts: OpenAiCompatOptions): LlmProvid
         finishReason,
         estimatedCostUsd: 0,
         toolUse: toolUse.length > 0 ? toolUse : undefined
+      };
+    },
+
+    async embed(texts: string[], model?: string): Promise<EmbeddingResponse> {
+      const embModel = model ?? "text-embedding-3-small";
+      const resp = await client.embeddings.create({
+        model: embModel,
+        input: texts
+      });
+      const vectors = resp.data
+        .sort((a, b) => a.index - b.index)
+        .map((d) => d.embedding);
+      return {
+        vectors,
+        model: resp.model,
+        inputTokens: resp.usage?.prompt_tokens ?? 0
       };
     }
   };

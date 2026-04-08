@@ -14,6 +14,8 @@ export interface SandboxConfig {
   allowSystemPromptOverride: boolean;
   injectionProtection: boolean;
   blockedPhrases?: string[];
+  /** Custom regex patterns (case-insensitive) that will block messages */
+  customInjectionPatterns?: string[];
 }
 
 export const DEFAULT_SANDBOX: SandboxConfig = {
@@ -22,7 +24,8 @@ export const DEFAULT_SANDBOX: SandboxConfig = {
   systemPromptSuffix: "",
   allowSystemPromptOverride: true,
   injectionProtection: false,
-  blockedPhrases: []
+  blockedPhrases: [],
+  customInjectionPatterns: []
 };
 
 export interface RedTeamConfig {

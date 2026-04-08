@@ -44,22 +44,65 @@ export function buildChatRequest(
   };
 }
 
+/**
+ * Default context window limits by model prefix.
+ * These can be overridden per-session via context_limit_override,
+ * or globally via JCLAW_DEFAULT_CONTEXT_LIMIT env var.
+ */
+export const DEFAULT_CONTEXT_LIMITS: Record<string, number> = {
+  // Anthropic Claude
+  "claude-opus-4": 200_000,
+  "claude-sonnet-4": 200_000,
+  "claude-haiku-4": 200_000,
+  "claude-3-5-sonnet": 200_000,
+  "claude-3-5-haiku": 200_000,
+  "claude-3-opus": 200_000,
+  "claude-3-sonnet": 200_000,
+  "claude-3-haiku": 200_000,
+  // OpenAI
+  "gpt-4o": 128_000,
+  "gpt-4-turbo": 128_000,
+  "gpt-4": 8_192,
+  "gpt-3.5-turbo-16k": 16_385,
+  "gpt-3.5-turbo": 16_385,
+  "o1-preview": 128_000,
+  "o1-mini": 128_000,
+  "o3-mini": 200_000,
+  // Groq
+  "llama-3.3-70b": 131_072,
+  "llama-3.1-70b": 131_072,
+  "llama-3.1-8b": 131_072,
+  "mixtral-8x7b": 32_768,
+  "gemma2-9b": 8_192,
+  // Google Gemini
+  "gemini-2.0-flash": 1_048_576,
+  "gemini-1.5-pro": 2_097_152,
+  "gemini-1.5-flash": 1_048_576,
+  // Local / Ollama
+  "llama3.2": 131_072,
+  "llama3.1": 131_072,
+  "llama3": 8_192,
+  "mistral": 32_768,
+  "codellama": 16_384,
+  "phi3": 128_000,
+  "qwen2": 131_072,
+  "deepseek-coder": 16_384,
+};
+
 export function getContextBudget(
   model: string,
-  usedTokens: number
+  usedTokens: number,
+  overrideLimit?: number
 ): { used: number; limit: number; remaining: number; pct: number } {
-  const LIMITS: Record<string, number> = {
-    "claude-opus-4-6": 200_000,
-    "claude-sonnet-4-6": 200_000,
-    "claude-haiku-4-5-20251001": 200_000,
-    "gpt-4o": 128_000,
-    "gpt-4-turbo": 128_000,
-    "gpt-3.5-turbo": 16_385,
-    "llama3.2": 131_072
-  };
+  const envDefault = process.env.JCLAW_DEFAULT_CONTEXT_LIMIT
+    ? parseInt(process.env.JCLAW_DEFAULT_CONTEXT_LIMIT)
+    : 128_000;
 
   const limit =
-    Object.entries(LIMITS).find(([k]) => model.startsWith(k))?.[1] ?? 128_000;
+    overrideLimit ??
+    Object.entries(DEFAULT_CONTEXT_LIMITS).find(([k]) => model.startsWith(k))?.[1] ??
+    envDefault;
+
   const remaining = Math.max(0, limit - usedTokens);
   return {
     used: usedTokens,

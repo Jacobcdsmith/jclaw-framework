@@ -822,6 +822,311 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       return ok(req.id, { tools: mcpMgr.getTools() });
     }
 
+    // ── datasets ──────────────────────────────────────────────────────────────
+    case "datasets.list": {
+      const { listDatasets } = await import("../storage/datasets.js");
+      return ok(req.id, { datasets: listDatasets() });
+    }
+
+    case "datasets.create": {
+      const { createDataset } = await import("../storage/datasets.js");
+      const name = requireStr(req.id, p.name, "name");
+      if (typeof name !== "string") return name;
+      const dataset = createDataset({
+        name,
+        description: str(p.description),
+        format: (str(p.format) ?? "chat") as "chat" | "completion" | "preference"
+      });
+      return ok(req.id, { dataset });
+    }
+
+    case "datasets.get": {
+      const { getDatasetByName, getDataset, getDatasetStats } = await import("../storage/datasets.js");
+      const id = str(p.id);
+      const name = str(p.name);
+      const dataset = id ? getDataset(id) : name ? getDatasetByName(name) : undefined;
+      if (!dataset) return err(req.id, "Dataset not found");
+      const stats = getDatasetStats(dataset.id);
+      return ok(req.id, { dataset, stats });
+    }
+
+    case "datasets.delete": {
+      const { getDatasetByName, getDataset, deleteDataset } = await import("../storage/datasets.js");
+      const id = str(p.id);
+      const name = str(p.name);
+      const dataset = id ? getDataset(id) : name ? getDatasetByName(name) : undefined;
+      if (!dataset) return err(req.id, "Dataset not found");
+      deleteDataset(dataset.id);
+      return ok(req.id, { deleted: dataset.id });
+    }
+
+    case "datasets.populate": {
+      const { getDatasetByName, getDataset, populateFromMessages } = await import("../storage/datasets.js");
+      const id = str(p.id);
+      const name = str(p.name);
+      const dataset = id ? getDataset(id) : name ? getDatasetByName(name) : undefined;
+      if (!dataset) return err(req.id, "Dataset not found");
+      const added = populateFromMessages(dataset.id, {
+        minRating: num(p.minRating),
+        model: str(p.model),
+        provider: str(p.provider),
+        sessionId: str(p.sessionId),
+        limit: num(p.limit)
+      });
+      return ok(req.id, { added, datasetId: dataset.id });
+    }
+
+    case "datasets.export": {
+      const { getDatasetByName, getDataset, exportDataset } = await import("../storage/datasets.js");
+      const id = str(p.id);
+      const name = str(p.name);
+      const dataset = id ? getDataset(id) : name ? getDatasetByName(name) : undefined;
+      if (!dataset) return err(req.id, "Dataset not found");
+      const format = (str(p.format) ?? "jsonl-chat") as import("../storage/datasets.js").DatasetExportFormat;
+      const output = exportDataset(dataset.id, format);
+      return ok(req.id, { format, output });
+    }
+
+    case "datasets.addItem": {
+      const { getDatasetByName, getDataset, addDatasetItem } = await import("../storage/datasets.js");
+      const id = str(p.datasetId);
+      const name = str(p.datasetName);
+      const dataset = id ? getDataset(id) : name ? getDatasetByName(name) : undefined;
+      if (!dataset) return err(req.id, "Dataset not found");
+      const userContent = requireStr(req.id, p.userContent, "userContent");
+      if (typeof userContent !== "string") return userContent;
+      const assistantContent = requireStr(req.id, p.assistantContent, "assistantContent");
+      if (typeof assistantContent !== "string") return assistantContent;
+      const item = addDatasetItem({
+        datasetId: dataset.id,
+        userContent,
+        assistantContent,
+        systemPrompt: str(p.systemPrompt),
+        model: str(p.model),
+        provider: str(p.provider),
+        rating: num(p.rating)
+      });
+      return ok(req.id, { item });
+    }
+
+    // ── evals ─────────────────────────────────────────────────────────────────
+    case "evals.suites.list": {
+      const { listEvalSuites } = await import("../storage/evals.js");
+      return ok(req.id, { suites: listEvalSuites() });
+    }
+
+    case "evals.suites.create": {
+      const { createEvalSuite } = await import("../storage/evals.js");
+      const name = requireStr(req.id, p.name, "name");
+      if (typeof name !== "string") return name;
+      const suite = createEvalSuite({
+        name,
+        description: str(p.description),
+        judgeModel: str(p.judgeModel),
+        judgeProvider: str(p.judgeProvider)
+      });
+      return ok(req.id, { suite });
+    }
+
+    case "evals.suites.delete": {
+      const { getEvalSuiteByName, getEvalSuite, deleteEvalSuite } = await import("../storage/evals.js");
+      const id = str(p.id);
+      const name = str(p.name);
+      const suite = id ? getEvalSuite(id) : name ? getEvalSuiteByName(name) : undefined;
+      if (!suite) return err(req.id, "Eval suite not found");
+      deleteEvalSuite(suite.id);
+      return ok(req.id, { deleted: suite.id });
+    }
+
+    case "evals.cases.add": {
+      const { getEvalSuiteByName, getEvalSuite, addEvalCase } = await import("../storage/evals.js");
+      const id = str(p.suiteId);
+      const name = str(p.suiteName);
+      const suite = id ? getEvalSuite(id) : name ? getEvalSuiteByName(name) : undefined;
+      if (!suite) return err(req.id, "Eval suite not found");
+      const userContent = requireStr(req.id, p.userContent, "userContent");
+      if (typeof userContent !== "string") return userContent;
+      const evalCase = addEvalCase({
+        suiteId: suite.id,
+        userContent,
+        systemPrompt: str(p.systemPrompt),
+        expectedOutput: str(p.expectedOutput),
+        evalCriteria: str(p.evalCriteria)
+      });
+      return ok(req.id, { case: evalCase });
+    }
+
+    case "evals.cases.list": {
+      const { getEvalSuiteByName, getEvalSuite, listEvalCases } = await import("../storage/evals.js");
+      const id = str(p.suiteId);
+      const name = str(p.suiteName);
+      const suite = id ? getEvalSuite(id) : name ? getEvalSuiteByName(name) : undefined;
+      if (!suite) return err(req.id, "Eval suite not found");
+      return ok(req.id, { cases: listEvalCases(suite.id) });
+    }
+
+    case "evals.run": {
+      const { getEvalSuiteByName, getEvalSuite } = await import("../storage/evals.js");
+      const { runEval } = await import("../runtime/eval.js");
+      const id = str(p.suiteId);
+      const name = str(p.suiteName);
+      const suite = id ? getEvalSuite(id) : name ? getEvalSuiteByName(name) : undefined;
+      if (!suite) return err(req.id, "Eval suite not found");
+      const modelSpec = requireStr(req.id, p.modelSpec, "modelSpec");
+      if (typeof modelSpec !== "string") return modelSpec;
+
+      // Run async, emit progress events
+      const evalRuntime = { providers: ctx.runtime.providers };
+      runEval(evalRuntime, {
+        suiteId: suite.id,
+        modelSpec,
+        judgeModelSpec: str(p.judgeModelSpec),
+        concurrency: num(p.concurrency) ?? 4,
+        onProgress: (completed, total, result) => {
+          ctx.socket.send(JSON.stringify({
+            type: "event",
+            event: "evals.progress",
+            payload: { completed, total, result }
+          }));
+        }
+      }).then((summary) => {
+        ctx.socket.send(JSON.stringify({
+          type: "event",
+          event: "evals.complete",
+          payload: { runId: summary.run.id, avgScore: summary.avgScore, passRate: summary.passRate }
+        }));
+      }).catch((e) => {
+        ctx.socket.send(JSON.stringify({
+          type: "event",
+          event: "evals.error",
+          payload: { error: e instanceof Error ? e.message : String(e) }
+        }));
+      });
+
+      return ok(req.id, { started: true, suiteId: suite.id, modelSpec });
+    }
+
+    case "evals.runs.list": {
+      const { listEvalRuns } = await import("../storage/evals.js");
+      return ok(req.id, { runs: listEvalRuns(str(p.suiteId)) });
+    }
+
+    case "evals.runs.summary": {
+      const { getEvalRunSummary } = await import("../storage/evals.js");
+      const runId = requireStr(req.id, p.runId, "runId");
+      if (typeof runId !== "string") return runId;
+      const summary = getEvalRunSummary(runId);
+      return ok(req.id, summary);
+    }
+
+    // ── finetune ──────────────────────────────────────────────────────────────
+    case "finetune.start": {
+      const { startFineTune } = await import("../runtime/finetune.js");
+      const provider = (requireStr(req.id, p.provider, "provider") as string);
+      if (typeof provider !== "string") return provider as ResponseFrameT;
+      const baseModel = requireStr(req.id, p.baseModel, "baseModel");
+      if (typeof baseModel !== "string") return baseModel;
+      const datasetId = requireStr(req.id, p.datasetId, "datasetId");
+      if (typeof datasetId !== "string") return datasetId;
+      const job = await startFineTune({
+        provider: provider as "openai" | "groq",
+        baseModel,
+        datasetId,
+        hyperparameters: p.hyperparameters as Record<string, unknown> | undefined
+      });
+      return ok(req.id, { job });
+    }
+
+    case "finetune.list": {
+      const { listFineTuneJobsLocal } = await import("../runtime/finetune.js");
+      return ok(req.id, { jobs: listFineTuneJobsLocal() });
+    }
+
+    case "finetune.sync": {
+      const { syncFineTuneJob } = await import("../runtime/finetune.js");
+      const jobId = requireStr(req.id, p.jobId, "jobId");
+      if (typeof jobId !== "string") return jobId;
+      const job = await syncFineTuneJob(jobId);
+      return ok(req.id, { job });
+    }
+
+    case "finetune.cancel": {
+      const { cancelFineTuneJob } = await import("../runtime/finetune.js");
+      const jobId = requireStr(req.id, p.jobId, "jobId");
+      if (typeof jobId !== "string") return jobId;
+      const job = await cancelFineTuneJob(jobId);
+      return ok(req.id, { job });
+    }
+
+    // ── embeddings ────────────────────────────────────────────────────────────
+    case "embeddings.embed": {
+      const { embedTexts } = await import("../runtime/embeddings.js");
+      const textsRaw = p.texts;
+      const texts = Array.isArray(textsRaw) ? (textsRaw as unknown[]).map(String) : [String(textsRaw ?? "")];
+      if (texts.length === 0) return err(req.id, "texts array is empty");
+      const result = await embedTexts(
+        { providers: ctx.runtime.providers },
+        { texts, modelSpec: str(p.modelSpec), useCache: p.useCache !== false }
+      );
+      return ok(req.id, result);
+    }
+
+    case "embeddings.search": {
+      const { semanticSearchMessages } = await import("../runtime/embeddings.js");
+      const query = requireStr(req.id, p.query, "query");
+      if (typeof query !== "string") return query;
+      const results = await semanticSearchMessages(
+        { providers: ctx.runtime.providers },
+        {
+          query,
+          sessionId: str(p.sessionId),
+          topK: num(p.topK) ?? 5,
+          modelSpec: str(p.modelSpec),
+          minScore: num(p.minScore) ?? 0.3
+        }
+      );
+      return ok(req.id, { results });
+    }
+
+    // ── persistent metrics ────────────────────────────────────────────────────
+    case "metrics.history": {
+      const { queryMetricsHistory } = await import("../storage/metrics-persistent.js");
+      const records = queryMetricsHistory({
+        provider: str(p.provider),
+        model: str(p.model),
+        sessionId: str(p.sessionId),
+        fromTs: num(p.fromTs),
+        toTs: num(p.toTs),
+        includeProbes: Boolean(p.includeProbes),
+        limit: num(p.limit) ?? 500
+      });
+      return ok(req.id, { records });
+    }
+
+    case "metrics.aggregation": {
+      const { getMetricsAggregation, getTotalCostByProvider } = await import("../storage/metrics-persistent.js");
+      const agg = getMetricsAggregation({
+        fromTs: num(p.fromTs),
+        toTs: num(p.toTs),
+        includeProbes: Boolean(p.includeProbes)
+      });
+      const costByProvider = getTotalCostByProvider(num(p.fromTs));
+      return ok(req.id, { aggregations: agg, costByProvider });
+    }
+
+    case "metrics.prune": {
+      const { pruneMetricsHistory } = await import("../storage/metrics-persistent.js");
+      const olderThanDays = num(p.olderThanDays) ?? 90;
+      const deleted = pruneMetricsHistory(olderThanDays * 24 * 60 * 60 * 1000);
+      return ok(req.id, { deleted });
+    }
+
+    // ── context limits ────────────────────────────────────────────────────────
+    case "context.limits": {
+      const { DEFAULT_CONTEXT_LIMITS } = await import("../runtime/composer.js");
+      return ok(req.id, { limits: DEFAULT_CONTEXT_LIMITS });
+    }
+
     // ── legacy ────────────────────────────────────────────────────────────────
     case "agent.echo": {
       const input = requireStr(req.id, p.input, "input");

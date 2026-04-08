@@ -1,5 +1,7 @@
 export type ProviderName = "anthropic" | "openai" | "ollama" | "lmstudio" | "groq" | "gemini";
 
+export type FineTuneStatus = "created" | "uploading" | "queued" | "running" | "succeeded" | "failed" | "cancelled";
+
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
@@ -41,6 +43,12 @@ export interface ChatResponse {
 /** Token-by-token stream. Each yielded value is a text delta. */
 export type TokenStream = AsyncIterable<string>;
 
+export interface EmbeddingResponse {
+  vectors: number[][];
+  model: string;
+  inputTokens: number;
+}
+
 export interface LlmProvider {
   name: ProviderName;
   displayName: string;
@@ -54,6 +62,8 @@ export interface LlmProvider {
   ): Promise<ChatResponse>;
   /** Optional: ping the provider and return latency in ms, or throw on failure. */
   ping?(): Promise<number>;
+  /** Optional: generate embeddings for one or more texts. */
+  embed?(texts: string[], model?: string): Promise<EmbeddingResponse>;
 }
 
 export interface ProviderConfig {

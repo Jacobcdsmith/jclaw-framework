@@ -569,6 +569,291 @@ export function buildJclawCli() {
       console.log("[MCP servers reloaded]");
     });
 
+  // ── datasets ──────────────────────────────────────────────────────────────
+  const datasets = program.command("datasets").description("Dataset curation for model training");
+
+  datasets.command("list")
+    .description("List all datasets")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .action(async (opts) => {
+      const r = await callJclaw<{ datasets: unknown[] }>("datasets.list", {}, port(opts));
+      printJson(r.datasets);
+    });
+
+  datasets.command("create <name>")
+    .description("Create a new dataset")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .option("--description <desc>")
+    .option("--format <format>", "chat|completion|preference", "chat")
+    .action(async (name, opts) => {
+      const r = await callJclaw<{ dataset: unknown }>("datasets.create", {
+        name, description: opts.description, format: opts.format
+      }, port(opts));
+      console.log("[Dataset created]");
+      printJson(r.dataset);
+    });
+
+  datasets.command("get <name>")
+    .description("Get dataset details and stats")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .action(async (name, opts) => {
+      const r = await callJclaw<unknown>("datasets.get", { name }, port(opts));
+      printJson(r);
+    });
+
+  datasets.command("populate <name>")
+    .description("Populate dataset from rated messages")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .option("--min-rating <n>", "Minimum rating (1-5)", "4")
+    .option("--model <model>", "Filter by model")
+    .option("--provider <provider>", "Filter by provider")
+    .option("--session <sessionId>", "Limit to one session")
+    .option("--limit <n>", "Max items to add")
+    .action(async (name, opts) => {
+      const r = await callJclaw<{ added: number }>("datasets.populate", {
+        name,
+        minRating: Number(opts.minRating),
+        model: opts.model,
+        provider: opts.provider,
+        sessionId: opts.session,
+        limit: opts.limit ? Number(opts.limit) : undefined
+      }, port(opts));
+      console.log(`[Added ${r.added} items to dataset '${name}']`);
+    });
+
+  datasets.command("export <name>")
+    .description("Export dataset to stdout")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .option("--format <format>", "jsonl-chat|jsonl-completion|jsonl-preference|json|csv", "jsonl-chat")
+    .action(async (name, opts) => {
+      const r = await callJclaw<{ output: string }>("datasets.export", {
+        name, format: opts.format
+      }, port(opts));
+      console.log(r.output);
+    });
+
+  datasets.command("delete <name>")
+    .description("Delete a dataset and all its items")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .action(async (name, opts) => {
+      await callJclaw("datasets.delete", { name }, port(opts));
+      console.log(`[Dataset deleted: ${name}]`);
+    });
+
+  // ── evals ─────────────────────────────────────────────────────────────────
+  const evals = program.command("evals").description("Evaluation suites and benchmarking");
+
+  evals.command("list")
+    .description("List all eval suites")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .action(async (opts) => {
+      const r = await callJclaw<{ suites: unknown[] }>("evals.suites.list", {}, port(opts));
+      printJson(r.suites);
+    });
+
+  evals.command("create <name>")
+    .description("Create a new eval suite")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .option("--description <desc>")
+    .option("--judge-model <model>", "Model to use as judge", "gpt-4o")
+    .option("--judge-provider <provider>", "Provider for judge model", "openai")
+    .action(async (name, opts) => {
+      const r = await callJclaw<{ suite: unknown }>("evals.suites.create", {
+        name, description: opts.description,
+        judgeModel: opts.judgeModel, judgeProvider: opts.judgeProvider
+      }, port(opts));
+      console.log("[Eval suite created]");
+      printJson(r.suite);
+    });
+
+  evals.command("add-case <suiteName>")
+    .description("Add a test case to an eval suite")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .requiredOption("-u, --user <prompt>", "User prompt")
+    .option("-e, --expected <output>", "Expected output (reference)")
+    .option("-c, --criteria <criteria>", "Evaluation criteria for the judge")
+    .option("--system <prompt>", "System prompt for this case")
+    .action(async (suiteName, opts) => {
+      const r = await callJclaw<{ case: unknown }>("evals.cases.add", {
+        suiteName, userContent: opts.user,
+        expectedOutput: opts.expected,
+        evalCriteria: opts.criteria,
+        systemPrompt: opts.system
+      }, port(opts));
+      console.log("[Eval case added]");
+      printJson(r.case);
+    });
+
+  evals.command("cases <suiteName>")
+    .description("List all cases in an eval suite")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .action(async (suiteName, opts) => {
+      const r = await callJclaw<{ cases: unknown[] }>("evals.cases.list", { suiteName }, port(opts));
+      printJson(r.cases);
+    });
+
+  evals.command("run <suiteName>")
+    .description("Run an eval suite against a model")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .requiredOption("--model <spec>", "Model spec to evaluate (e.g. openai:gpt-4o)")
+    .option("--judge <spec>", "Override judge model spec")
+    .option("--concurrency <n>", "Parallel cases", "4")
+    .action(async (suiteName, opts) => {
+      console.log(`[Running eval suite '${suiteName}' against ${opts.model}...]`);
+      return new Promise<void>((resolve, reject) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${port(opts)}`);
+        const id = `${Date.now()}-eval`;
+        ws.on("error", reject);
+        ws.on("open", () => ws.send(JSON.stringify({
+          type: "req", id, method: "evals.run",
+          params: {
+            suiteName, modelSpec: opts.model,
+            judgeModelSpec: opts.judge,
+            concurrency: Number(opts.concurrency)
+          }
+        })));
+        ws.on("message", (raw) => {
+          const frame = JSON.parse(String(raw)) as Record<string, unknown>;
+          if (frame.type === "event") {
+            if (frame.event === "evals.progress") {
+              const p = frame.payload as { completed: number; total: number; result: { score: number | null } };
+              process.stdout.write(`\r  Progress: ${p.completed}/${p.total}  Score: ${p.result.score ?? "N/A"}   `);
+            } else if (frame.event === "evals.complete") {
+              const p = frame.payload as { avgScore: number | null; passRate: number | null };
+              process.stdout.write("\n");
+              console.log(`[Complete] Avg score: ${p.avgScore?.toFixed(1) ?? "N/A"}  Pass rate: ${p.passRate !== null ? (p.passRate * 100).toFixed(0) + "%" : "N/A"}`);
+              ws.close(); resolve();
+            } else if (frame.event === "evals.error") {
+              ws.close(); reject(new Error((frame.payload as { error: string }).error));
+            }
+          } else if (frame.type === "res" && frame.id === id) {
+            if (!(frame.ok as boolean)) { ws.close(); reject(new Error(frame.error as string)); }
+          }
+        });
+      });
+    });
+
+  evals.command("runs <suiteName>")
+    .description("List all runs for an eval suite")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .action(async (suiteName, opts) => {
+      const r = await callJclaw<{ runs: unknown[] }>("evals.runs.list", { suiteName }, port(opts));
+      printJson(r.runs);
+    });
+
+  evals.command("summary <runId>")
+    .description("Show detailed summary of an eval run")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .action(async (runId, opts) => {
+      const r = await callJclaw<unknown>("evals.runs.summary", { runId }, port(opts));
+      printJson(r);
+    });
+
+  // ── finetune ──────────────────────────────────────────────────────────────
+  const finetune = program.command("finetune").description("Fine-tuning job management");
+
+  finetune.command("start")
+    .description("Start a fine-tuning job from a dataset")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .requiredOption("--dataset <id>", "Dataset ID to train on")
+    .requiredOption("--model <model>", "Base model to fine-tune (e.g. gpt-4o-mini-2024-07-18)")
+    .option("--provider <provider>", "Provider (openai)", "openai")
+    .option("--epochs <n>", "Number of training epochs")
+    .option("--suffix <suffix>", "Suffix for the fine-tuned model name")
+    .action(async (opts) => {
+      const r = await callJclaw<{ job: unknown }>("finetune.start", {
+        provider: opts.provider,
+        baseModel: opts.model,
+        datasetId: opts.dataset,
+        hyperparameters: {
+          nEpochs: opts.epochs ? Number(opts.epochs) : undefined,
+          suffix: opts.suffix
+        }
+      }, port(opts));
+      console.log("[Fine-tune job started]");
+      printJson(r.job);
+    });
+
+  finetune.command("list")
+    .description("List all fine-tuning jobs")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .action(async (opts) => {
+      const r = await callJclaw<{ jobs: unknown[] }>("finetune.list", {}, port(opts));
+      printJson(r.jobs);
+    });
+
+  finetune.command("sync <jobId>")
+    .description("Sync job status from provider")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .action(async (jobId, opts) => {
+      const r = await callJclaw<{ job: unknown }>("finetune.sync", { jobId }, port(opts));
+      printJson(r.job);
+    });
+
+  finetune.command("cancel <jobId>")
+    .description("Cancel a running fine-tune job")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .action(async (jobId, opts) => {
+      const r = await callJclaw<{ job: unknown }>("finetune.cancel", { jobId }, port(opts));
+      console.log("[Fine-tune job cancelled]");
+      printJson(r.job);
+    });
+
+  // ── embeddings ────────────────────────────────────────────────────────────
+  const embed = program.command("embed").description("Embeddings and semantic search");
+
+  embed.command("search <query>")
+    .description("Semantic search over message history")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .option("--session <sessionId>", "Limit to one session")
+    .option("--top <n>", "Number of results", "5")
+    .option("--model <spec>", "Embedding model spec", "openai:text-embedding-3-small")
+    .option("--min-score <n>", "Minimum similarity score (0-1)", "0.3")
+    .action(async (query, opts) => {
+      const r = await callJclaw<{ results: unknown[] }>("embeddings.search", {
+        query, sessionId: opts.session,
+        topK: Number(opts.top),
+        modelSpec: opts.model,
+        minScore: Number(opts.minScore)
+      }, port(opts));
+      printJson(r.results);
+    });
+
+  // ── metrics history ────────────────────────────────────────────────────────
+  const metricsCmd = program.command("metrics").description("Persistent metrics and cost analysis");
+
+  metricsCmd.command("history")
+    .description("Query persistent metrics history")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .option("--provider <provider>")
+    .option("--model <model>")
+    .option("--limit <n>", "Max records", "100")
+    .action(async (opts) => {
+      const r = await callJclaw<unknown>("metrics.history", {
+        provider: opts.provider, model: opts.model, limit: Number(opts.limit)
+      }, port(opts));
+      printJson(r);
+    });
+
+  metricsCmd.command("aggregation")
+    .description("Aggregated metrics by provider/model")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .action(async (opts) => {
+      const r = await callJclaw<unknown>("metrics.aggregation", {}, port(opts));
+      printJson(r);
+    });
+
+  metricsCmd.command("prune")
+    .description("Delete old metrics records")
+    .option("-p, --port <port>", "Gateway port", "5000")
+    .option("--days <n>", "Delete records older than N days", "90")
+    .action(async (opts) => {
+      const r = await callJclaw<{ deleted: number }>("metrics.prune", {
+        olderThanDays: Number(opts.days)
+      }, port(opts));
+      console.log(`[Pruned ${r.deleted} metric records older than ${opts.days} days]`);
+    });
+
   return program;
 }
 

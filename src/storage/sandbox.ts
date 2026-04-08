@@ -22,13 +22,31 @@ export function getEffectiveSandbox(): SandboxConfig {
   return { ...DEFAULT_SANDBOX, ...stored };
 }
 
-export function checkInjection(content: string, extra: string[] = []): void {
+export function checkInjection(
+  content: string,
+  extra: string[] = [],
+  customPatterns: string[] = []
+): void {
   for (const pattern of INJECTION_PATTERNS) {
     if (pattern.test(content)) {
       throw new Error(
         `[Sandbox] Message blocked: potential prompt injection detected. ` +
         `Pattern matched: ${pattern.toString()}`
       );
+    }
+  }
+  // User-defined regex patterns
+  for (const rawPattern of customPatterns) {
+    try {
+      const re = new RegExp(rawPattern, "i");
+      if (re.test(content)) {
+        throw new Error(
+          `[Sandbox] Message blocked: matched custom pattern: ${rawPattern}`
+        );
+      }
+    } catch (e) {
+      if ((e as Error).message.startsWith("[Sandbox]")) throw e;
+      // Invalid regex — skip silently
     }
   }
   const lower = content.toLowerCase();
