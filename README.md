@@ -1,57 +1,43 @@
-# jclaw
+# jclaw-framework
 
-> Treat the LLM API as a runtime, not a chatbox.
+> **Treat the LLM API as a runtime, not a chatbox.**
 
-jclaw is a local-first LLM runtime with persistent sessions, multi-provider support, conversation branching, response diffing, and automation-native output piping. No account required. Everything lives in a SQLite file on your machine.
-
----
-
-## Install
-
-```bash
-npm install
-npm run build
-```
-
-## Quick start
-
-```bash
-# Start the gate server (keep running in a terminal)
-node dist/gate/server.js
-# or during development:
-npx tsx src/gate/server.ts
-
-# Start a session
-jclaw sessions start --model claude-sonnet-4-6 --label "my first session"
-
-# Chat
-jclaw chat send <sessionId> -m "Explain monads in one paragraph"
-
-# Stream tokens as they arrive
-jclaw chat send <sessionId> -m "Write me a poem" --stream
-```
+`jclaw-framework` is a local-first LLM runtime designed for developers who need more than just a conversational interface. It provides persistent sessions, multi-provider support, conversation branching, response diffing, and automation-native output piping. No account required. Everything lives in a SQLite file on your machine.
 
 ---
 
-## Core concepts
+## 🌟 Project Overview
 
-**Sessions** are persistent named conversations stored in `~/.jclaw/jclaw.db`. They carry model, provider, system prompt, temperature, and accumulated token/cost state. Sessions survive restarts.
+Traditional LLM interfaces treat interactions as ephemeral chats. `jclaw-framework` shifts this paradigm by treating the LLM as a persistent, programmable runtime environment. It allows you to manage complex workflows, compare models side-by-side, branch conversations to explore alternative paths, and seamlessly integrate LLM outputs into your existing tools and scripts.
 
-**Messages** are stored per-session with full metadata: role, model tag, provider, token counts, temperature. Every message records what model generated it — essential for mid-session model switches.
+## ✨ Key Features
 
-**Providers** are swappable mid-conversation. Anthropic, OpenAI, Ollama, and LM Studio are built in. Each message is tagged with the provider and model that produced it.
-
-**Forks** branch a session at any message, copying history up to that point into a new session. The original is untouched.
+- **Persistent Sessions**: Conversations are stored locally in SQLite (`~/.jclaw/jclaw.db`). They survive restarts and carry state like model, provider, system prompt, temperature, and accumulated token/cost metrics.
+- **Multi-Provider Support**: Swap providers mid-conversation. Built-in support for Anthropic, OpenAI, Ollama, and LM Studio. Every message is tagged with the exact model and provider that generated it.
+- **Conversation Branching (Forks)**: Branch a session at any message. The history up to that point is copied into a new session, leaving the original untouched.
+- **Response Diffing & Model Comparison**: Regenerate responses to see word/line-level diffs. Run the same prompt against multiple models in parallel and compare their outputs side-by-side.
+- **Automation-Native Output Piping**: Pipe LLM responses directly to files, the system clipboard, webhooks, or custom shell scripts.
+- **Prompt Library & Templates**: Store reusable prompts with `{{variable}}` templating. Create session templates with pre-configured models, system prompts, and cost ceilings.
+- **Full-Text Search**: Instantly search across all your message history using SQLite FTS5.
+- **Web Dashboard**: A sleek, React-based SPA with a "Star Trek / LCARS terminal" aesthetic for managing sessions, prompts, templates, and providers.
+- **Model Context Protocol (MCP)**: Expose `jclaw` functionalities as tools to other MCP-compatible agents.
 
 ---
 
-## Architecture
+## 🏗️ Architecture Overview
 
-```
+The framework is built on a modern TypeScript/Node.js stack:
+
+- **Backend**: Node.js 20 (ESM), Express, WebSocketServer.
+- **Database**: SQLite (`better-sqlite3`) in WAL mode with FTS5 for search.
+- **Frontend**: React + Vite, styled with TailwindCSS.
+- **CLI**: Built with `commander` for robust terminal interaction.
+
+```text
 CLI (commander)
     │  WebSocket frames
     ▼
-gate/server.ts        ← Express + WebSocketServer
+gate/server.ts        ← Express + WebSocketServer (serves Dashboard)
     │
 gate/protocol.ts      ← method router (~30 methods)
     │
@@ -62,309 +48,102 @@ gate/protocol.ts      ← method router (~30 methods)
     │   ├── prompts.ts      prompt library + {{variable}} templating
     │   └── templates.ts    session templates
     │
-    ├── providers/    ← LLM adapters
-    │   ├── anthropic.ts    Anthropic SDK (streaming + ping)
-    │   ├── openai-compat.ts OpenAI / Ollama / LM Studio (streaming + ping)
-    │   └── registry.ts     provider registry + "provider:model" parsing
+    ├── providers/    ← LLM adapters (Anthropic, OpenAI, Ollama, LM Studio)
     │
-    └── runtime/      ← business logic
-        ├── chat.ts         sendMessage, stream, fork, regen, compare, summarize
-        ├── composer.ts     ChatRequest assembly, pinned message injection, context budget
-        ├── differ.ts       word/line response diffing
-        └── pipeline.ts     output pipes (clipboard, file, webhook, script)
+    └── runtime/      ← business logic (chat, context budget, diffing, piping)
 ```
 
 ---
 
-## Providers
+## 🚀 Installation
 
-| Provider | Default model | Notes |
-|----------|--------------|-------|
-| `anthropic` | `claude-sonnet-4-6` | Requires `ANTHROPIC_API_KEY` |
-| `openai` | `gpt-4o` | Requires `OPENAI_API_KEY` |
-| `ollama` | `llama3.2` | Local, no key needed (`http://127.0.0.1:11434/v1`) |
-| `lmstudio` | `local-model` | Local, no key needed (`http://127.0.0.1:1234/v1`) |
-
-Model spec format: `provider:model` or bare model name (provider inferred from prefix).
+Ensure you have Node.js 20+ installed.
 
 ```bash
-# Inferred from prefix
-jclaw sessions start --model claude-opus-4-6
-jclaw sessions start --model gpt-4o
+# Clone the repository
+git clone https://github.com/Jacobcdsmith/jclaw-framework.git
+cd jclaw-framework
 
-# Explicit
-jclaw sessions start --model anthropic:claude-sonnet-4-6
-jclaw sessions start --model ollama:llama3.2
-```
+# Install dependencies
+npm install
 
-Check provider connectivity:
-```bash
-jclaw providers ping
-────────────────────────────────────────────────
-Anthropic    ✓  231ms
-OpenAI       ✓  418ms
-Ollama       ✗  connection refused
-LM Studio    ✓   18ms
-────────────────────────────────────────────────
+# Build the backend and frontend
+npm run build
+cd web && npm install && npm run build && cd ..
 ```
 
 ---
 
-## Sessions
+## 🏁 Quick Start
+
+Start the gate server (which also serves the web dashboard):
 
 ```bash
-jclaw sessions list
-jclaw sessions list --all          # include archived
-jclaw sessions start --label "code review" --model claude-sonnet-4-6 \
-  --system "You are a senior engineer. Be terse." \
-  --temp 0.3 \
-  --ceiling 2.00 \          # hard stop at $2.00
-  --summarize-at 80          # auto-summarize at 80% context
-jclaw sessions get <sessionId>
-jclaw sessions update <sessionId> --model gpt-4o   # swap model mid-session
-jclaw sessions branches <sessionId>
-jclaw sessions stats
-jclaw sessions stats --session <sessionId>
-jclaw sessions export <sessionId> --format markdown > session.md
+# Start the server on port 5000
+JCLAW_PORT=5000 npm run dev:gate
 ```
 
----
+The web dashboard is now available at `http://localhost:5000`.
 
-## Chat
+### CLI Usage Examples
 
 ```bash
+# Start a new session
+jclaw sessions start --model claude-sonnet-4-6 --label "my first session"
+
 # Send a message
-jclaw chat send <sessionId> -m "Your message here"
+jclaw chat send <sessionId> -m "Explain monads in one paragraph"
 
-# Stream tokens
-jclaw chat send <sessionId> -m "Write a blog post" --stream
+# Stream tokens as they arrive
+jclaw chat send <sessionId> -m "Write me a poem" --stream
 
-# Override model for one message
-jclaw chat send <sessionId> -m "Check this" --model gpt-4o
-
-# Pipe output
+# Pipe output to clipboard and a file
 jclaw chat send <sessionId> -m "Draft release notes" \
   --pipe-file notes.txt \
-  --pipe-clipboard \
-  --pipe-webhook https://hooks.example.com/notify \
-  --pipe-script "pbcopy"
-
-# Context window status
-jclaw chat context <sessionId>
-# Model    : claude-sonnet-4-6
-# Tokens   : 42,891 / 200,000 (21%)
-# [████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░]
-# Remaining: 157,109 tokens
-# Cost     : $0.0032
-```
-
-### Forking
-
-```bash
-# Fork at a message, optionally send a different first message
-jclaw chat fork <sourceSessionId> <msgId> \
-  --label "alternative approach" \
-  --message "Now try it with a functional approach" \
-  --model anthropic:claude-opus-4-6
-```
-
-### Regenerate + diff
-
-```bash
-# Regenerate the last assistant response and see what changed
-jclaw chat regen <sessionId> <assistantMsgId> --diff-mode words
-# [regenerated]
-# ...new response...
-#
-# [diff]
-# - old phrase
-# + new phrase
-#   unchanged context...
-```
-
-### Compare models
-
-```bash
-jclaw chat compare <sessionId> \
-  -m "Explain this bug fix" \
-  --models claude-sonnet-4-6,gpt-4o,ollama:llama3.2
-```
-
-Runs the prompt against all models in parallel, prints responses side by side, and diffs adjacent pairs.
-
-### Summarize
-
-```bash
-# Manual
-jclaw chat summarize <sessionId>
-
-# Automatic: set --summarize-at on the session (e.g. 80%)
-# jclaw will summarize unpinned history whenever context hits that threshold
-```
-
----
-
-## Messages
-
-```bash
-# List all messages in a session
-jclaw messages <sessionId>
-
-# Pin a message (always injected into context, regardless of position)
-jclaw pin <messageId>
-jclaw unpin <messageId>
-
-# Rate a message 1–5 (useful for building eval datasets)
-jclaw rate <messageId> 4
-jclaw rate <messageId> 0     # clear rating
-```
-
----
-
-## Search
-
-Full-text search across all message history (SQLite FTS5):
-
-```bash
-jclaw search "monadic bind"
-jclaw search "auth flow" --session <sessionId> --limit 5
-```
-
----
-
-## Prompt library
-
-Store reusable prompts with `{{variable}}` template slots:
-
-```bash
-# Save
-jclaw prompts save code-review \
-  -c "Review this {{language}} code for {{focus}}. Be concise." \
-  --description "Code review template" \
-  --tags code,review
-
-# List variables
-jclaw prompts vars code-review
-# {{language}}
-# {{focus}}
-
-# Render with values
-jclaw prompts render code-review \
-  --var language=TypeScript \
-  --var focus="security issues"
-
-# List / get / delete
-jclaw prompts list
-jclaw prompts get code-review
-jclaw prompts delete code-review
-```
-
----
-
-## Session templates
-
-Pre-configured session setups you can instantiate by name:
-
-```bash
-# Save a template
-jclaw templates save codereview \
-  --model claude-sonnet-4-6 \
-  --system "You are a senior engineer. Review for correctness, security, and clarity." \
-  --temp 0.2 \
-  --ceiling 1.00 \
-  --description "Standard code review session"
-
-# Start a session from a template (params override template defaults)
-jclaw sessions start --template codereview --label "PR #42 review"
-```
-
----
-
-## Output pipeline
-
-Every `chat send` call can pipe the response to one or more targets simultaneously:
-
-| Flag | Destination |
-|------|------------|
-| `--pipe-file <path>` | Write to file (overwrite) |
-| `--pipe-clipboard` | System clipboard (`pbcopy` / `xclip` / `clip`) |
-| `--pipe-webhook <url>` | POST `{ "text": "..." }` to URL |
-| `--pipe-script <cmd>` | Run command, response on stdin |
-
-```bash
-jclaw chat send <sessionId> -m "Summarize the PR" \
-  --pipe-file summary.md \
   --pipe-clipboard
 ```
 
 ---
 
-## Export
+## 💻 Dashboard Guide
 
-```bash
-jclaw sessions export <sessionId> --format markdown > session.md
-jclaw sessions export <sessionId> --format jsonl >> dataset.jsonl
-jclaw sessions export <sessionId> --format json
-```
+The web dashboard provides a comprehensive graphical interface:
 
-Markdown export includes model tags, pinned badges, star ratings, and cost summary per session.
-
----
-
-## Environment variables
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `ANTHROPIC_API_KEY` | — | Anthropic provider |
-| `OPENAI_API_KEY` | — | OpenAI provider |
-| `JCLAW_PORT` | `18789` | Gate server port |
-| `JCLAW_DATA_DIR` | `~/.jclaw` | SQLite database location |
+- **Overview**: View session stats and live provider health pings.
+- **Sessions**: Manage and explore all your persistent conversations.
+- **Prompts & Templates**: Create and manage reusable prompts and session configurations.
+- **Providers**: Configure API keys and base URLs for different LLM providers.
+- **Search**: Perform full-text searches across your entire message history.
+- **MCP**: Manage Model Context Protocol server configurations.
 
 ---
 
-## WebSocket protocol
+## 🔌 MCP Integration Guide
 
-The gate exposes a JSON frame protocol over WebSocket. All frames have `type: "req" | "res" | "event"`.
+`jclaw-framework` includes a Model Context Protocol (MCP) server, allowing it to act as a tool provider for other AI agents.
 
-```json
-// Request
-{ "type": "req", "id": "abc123", "method": "chat.send", "params": { ... } }
+To use the MCP server, you can connect to it via stdio or HTTP/SSE. The server exposes tools such as:
+- `sessions_list`: List all chat sessions.
+- `sessions_create`: Create a new session.
+- `chat_send`: Send a message to a session.
+- `messages_search`: Search message history.
 
-// Response
-{ "type": "res", "id": "abc123", "ok": true, "payload": { ... } }
-
-// Streaming token event
-{ "type": "event", "event": "chat.token", "payload": { "sessionId": "...", "token": "..." } }
-```
-
-### Available methods
-
-**Sessions:** `sessions.list` · `sessions.start` · `sessions.get` · `sessions.update` · `sessions.branches` · `sessions.stats` · `sessions.export`
-
-**Messages:** `messages.list` · `messages.pin` · `messages.unpin` · `messages.rate`
-
-**Chat:** `chat.send` · `chat.stream` · `chat.fork` · `chat.regenerate` · `chat.diff` · `chat.context` · `chat.compare` · `chat.summarize`
-
-**Search:** `search.messages`
-
-**Providers:** `providers.list` · `providers.ping` · `providers.models`
-
-**Prompts:** `prompts.list` · `prompts.upsert` · `prompts.get` · `prompts.delete` · `prompts.render` · `prompts.variables`
-
-**Templates:** `templates.list` · `templates.upsert` · `templates.get` · `templates.delete`
+*(More tools are being actively added to expand MCP capabilities).*
 
 ---
 
-## Storage
+## 🤝 Contributing
 
-All data lives in `~/.jclaw/jclaw.db` (SQLite, WAL mode). No cloud dependency, no account. Exportable at any time.
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-```
-sessions     — session config, token counts, cost, branch links
-messages     — full history with model tags, pin/rating/summary flags
-messages_fts — FTS5 virtual table for full-text search (auto-synced)
-prompts      — prompt library
-templates    — session templates
-```
+1. Fork the repository.
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`).
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
+4. Push to the branch (`git push origin feature/AmazingFeature`).
+5. Open a Pull Request.
 
-Existing databases are migrated automatically on startup via `ALTER TABLE` — no manual migration step needed.
+---
+
+## 📄 License
+
+This project is licensed under the MIT License.
