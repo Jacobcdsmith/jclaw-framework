@@ -313,12 +313,12 @@ function JobCard({ job, selected, onSelect, onSync, onCancel, syncing, cancellin
 
   return (
     <div onClick={onSelect} style={{
-      background: "var(--surface)", border: "1px solid var(--border)",
+      background: selected ? "rgba(88,166,212,0.05)" : "var(--surface)",
+      border: "1px solid var(--border)",
       borderLeft: `3px solid ${STATUS_COLOR[job.status] ?? "var(--border)"}`,
       padding: "12px 14px", marginBottom: "8px", cursor: "pointer",
-      borderRadius: "var(--radius)",
-      background: selected ? "rgba(88,166,212,0.05)" : "var(--surface)"
-    } as React.CSSProperties}>
+      borderRadius: "var(--radius)"
+    }}>
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px", flexWrap: "wrap" }}>
         <StatusBadge status={job.status} />
         <span style={{ color: "var(--accent)", fontWeight: 500, fontSize: "13px" }}>{job.base_model}</span>
