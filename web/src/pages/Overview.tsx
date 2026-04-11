@@ -52,7 +52,7 @@ interface McpStatus {
 }
 
 interface LiveProcessing {
-  tokensThisSec: number;
+  chunksThisSec: number;
   totalOutputToday: number;
   lastModel: string | null;
   lastProvider: string | null;
@@ -117,7 +117,7 @@ export default function Overview() {
   const [redTeam, setRedTeam] = useState<RedTeamStatus | null>(null);
   const [whatsapp, setWhatsApp] = useState<WhatsAppStatus | null>(null);
   const [mcp, setMcp] = useState<McpStatus | null>(null);
-  const [live, setLive] = useState<LiveProcessing>({ tokensThisSec: 0, totalOutputToday: 0, lastModel: null, lastProvider: null });
+  const [live, setLive] = useState<LiveProcessing>({ chunksThisSec: 0, totalOutputToday: 0, lastModel: null, lastProvider: null });
   const [recentTokens, setRecentTokens] = useState<{ ts: number }[]>([]);
   const [error, setError] = useState<string | null>(null);
 
@@ -151,6 +151,19 @@ export default function Overview() {
       .then((r) => setProviders(r.providers))
       .catch((e: Error) => setError(e.message))
       .finally(() => setPinging(false));
+
+    // Seed "output today" from persisted metrics (midnight cutoff).
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+    call<{ aggregations: Array<{ sampleCount: number; avgOutputTokens: number }> }>(
+      "metrics.aggregation",
+      { fromTs: midnight.getTime() }
+    ).then((r) => {
+      const todayTotal = r.aggregations.reduce(
+        (acc, a) => acc + Math.round(a.avgOutputTokens * a.sampleCount), 0
+      );
+      setLive((prev) => ({ ...prev, totalOutputToday: todayTotal }));
+    }).catch(() => {});
 
     // Real-time token stream tracking
     const offEvent = onEvent((event, payload) => {
@@ -187,7 +200,8 @@ export default function Overview() {
 
   const totalTokens = stats ? stats.totalInputTokens + stats.totalOutputTokens : 0;
   const onlineCount = providers.filter((p) => p.ok).length;
-  const tokensPerSec = (recentTokens.length / 5).toFixed(1);
+  // Count of stream-chunk events in the last 5 s (chat.token events, not individual tokens).
+  const chunksPerSec = (recentTokens.length / 5).toFixed(1);
 
   return (
     <div>
@@ -240,7 +254,7 @@ export default function Overview() {
         marginBottom: "28px",
       }}>
         {[
-          { label: "TOKENS / SEC", value: tokensPerSec, color: recentTokens.length > 0 ? "var(--green)" : "var(--text3)", pulse: recentTokens.length > 0 },
+          { label: "STREAM CHUNKS / SEC", value: chunksPerSec, color: recentTokens.length > 0 ? "var(--green)" : "var(--text3)", pulse: recentTokens.length > 0 },
           { label: "OUTPUT TODAY", value: fmtNum(live.totalOutputToday), color: "var(--accent2)", pulse: false },
           { label: "LAST MODEL", value: live.lastModel ?? "—", color: "var(--accent)", pulse: false },
           { label: "LAST PROVIDER", value: live.lastProvider ?? "—", color: "var(--accent2)", pulse: false },

@@ -1,6 +1,7 @@
 import express from "express";
 import { WebSocketServer } from "ws";
 import { createServer } from "http";
+import { createHmac, timingSafeEqual } from "crypto";
 import { fileURLToPath } from "url";
 import { join, dirname } from "path";
 import { initPluginRegistry } from "../plugins/registry.js";
@@ -11,7 +12,7 @@ import { readConfig, mergeWithEnv, DEFAULT_WHATSAPP } from "../storage/config.js
 import type { ProviderConfig } from "../providers/types.js";
 import type { ChatRuntime } from "../runtime/chat.js";
 import { getMcpClientManager } from "../mcp/client-manager.js";
-import { whatsappMessages, type WhatsAppMessage } from "./whatsapp-store.js";
+import { pushWhatsAppMessage, type WhatsAppMessage } from "./whatsapp-store.js";
 export type { WhatsAppMessage };
 
 export interface JclawGateOptions {
@@ -49,8 +50,17 @@ export async function startJclawGate(options: JclawGateOptions) {
   const runtime: ChatRuntime = { providers, mcpClientManager };
 
   const wss = new WebSocketServer({ server: httpServer });
+
+  /** Broadcast a JSON-serialisable frame to every connected WebSocket client. */
+  function broadcast(frame: Record<string, unknown>): void {
+    const msg = JSON.stringify(frame);
+    wss.clients.forEach((client) => {
+      if (client.readyState === 1) client.send(msg);
+    });
+  }
+
   wss.on("connection", (socket) => {
-    handleWsConnection({ socket, sessions, plugins, runtime });
+    handleWsConnection({ socket, sessions, plugins, runtime, broadcast });
   });
 
   app.get("/health", (_req, res) => {
@@ -83,7 +93,30 @@ export async function startJclawGate(options: JclawGateOptions) {
     }
   });
 
-  app.post("/webhook/whatsapp", express.json(), (req, res) => {
+  app.post("/webhook/whatsapp", express.json({
+    verify: (req, _res, buf) => {
+      // Stash the raw body buffer for signature verification below.
+      (req as Record<string, unknown>).rawBody = buf;
+    }
+  }), (req, res) => {
+    // ── Signature verification ─────────────────────────────────────────────
+    const cfg = { ...DEFAULT_WHATSAPP, ...(readConfig().whatsapp ?? {}) };
+    if (cfg.appSecret) {
+      const sigHeader = req.headers["x-hub-signature-256"];
+      const rawBody = (req as Record<string, unknown>).rawBody as Buffer | undefined;
+      if (!sigHeader || !rawBody) {
+        res.status(403).send("Forbidden");
+        return;
+      }
+      const hmac = createHmac("sha256", cfg.appSecret).update(rawBody).digest("hex");
+      const expected = Buffer.from(`sha256=${hmac}`);
+      const received = Buffer.from(String(sigHeader));
+      if (expected.length !== received.length || !timingSafeEqual(expected, received)) {
+        res.status(403).send("Forbidden");
+        return;
+      }
+    }
+
     res.status(200).json({ ok: true });
 
     try {
@@ -99,8 +132,10 @@ export async function startJclawGate(options: JclawGateOptions) {
           const messages = (value.messages as unknown[]) ?? [];
           for (const msg of messages) {
             const m = msg as Record<string, unknown>;
-            const from = String(m.from ?? "");
-            const id = String(m.id ?? "");
+            const from = String(m.from ?? "").trim();
+            const id = String(m.id ?? "").trim();
+            // Skip records that are missing required identity fields.
+            if (!from || !id) continue;
             const ts = Number(m.timestamp ?? Math.floor(Date.now() / 1000));
             const type = String(m.type ?? "text");
             let text = "";
@@ -119,19 +154,10 @@ export async function startJclawGate(options: JclawGateOptions) {
               timestamp: ts * 1000,
               status: "received"
             };
-            whatsappMessages.unshift(record);
-            if (whatsappMessages.length > 500) whatsappMessages.length = 500;
+            pushWhatsAppMessage(record);
 
             // Broadcast to all open WebSocket clients
-            wss.clients.forEach((client) => {
-              if (client.readyState === 1) {
-                client.send(JSON.stringify({
-                  type: "event",
-                  event: "whatsapp.message",
-                  payload: record
-                }));
-              }
-            });
+            broadcast({ type: "event", event: "whatsapp.message", payload: record });
           }
         }
       }

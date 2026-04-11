@@ -5,6 +5,7 @@ interface WhatsAppConfig {
   phoneNumberId: string;
   accessToken: string;
   verifyToken: string;
+  appSecret?: string;
   autoReply: boolean;
   autoReplySessionId?: string;
   autoReplyModel?: string;
@@ -25,6 +26,7 @@ const DEFAULT_CFG: WhatsAppConfig = {
   phoneNumberId: "",
   accessToken: "",
   verifyToken: "jclaw-verify",
+  appSecret: "",
   autoReply: false,
   autoReplySessionId: "",
   autoReplyModel: "",
@@ -59,6 +61,7 @@ export default function WhatsApp() {
   const [loading, setLoading] = useState(true);
   const [configError, setConfigError] = useState<string | null>(null);
   const [rawToken, setRawToken] = useState("");
+  const [rawAppSecret, setRawAppSecret] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -96,15 +99,18 @@ export default function WhatsApp() {
     try {
       const payload: Record<string, unknown> = {
         phoneNumberId: cfg.phoneNumberId,
-        verifyToken: cfg.verifyToken,
         autoReply: cfg.autoReply,
         autoReplySessionId: cfg.autoReplySessionId,
         autoReplyModel: cfg.autoReplyModel,
       };
+      // Only send secrets if they are new plaintext values (not masked placeholders)
       if (rawToken) payload.accessToken = rawToken;
+      if (rawAppSecret) payload.appSecret = rawAppSecret;
+      if (cfg.verifyToken && !cfg.verifyToken.includes("…")) payload.verifyToken = cfg.verifyToken;
       await call("whatsapp.config.set", payload);
       setSaved(true);
       setRawToken("");
+      setRawAppSecret("");
       setTimeout(() => setSaved(false), 2500);
     } catch (e: unknown) {
       setConfigError(e instanceof Error ? e.message : "Save failed");
@@ -187,7 +193,7 @@ export default function WhatsApp() {
                 autoComplete="off"
               />
               <div style={{ fontSize: "10px", color: "var(--text3)", marginTop: "3px" }}>
-                Stored encrypted in <code>~/.jclaw/config.json</code>
+                Stored in <code>~/.jclaw/config.json</code>
               </div>
             </div>
 
@@ -195,10 +201,25 @@ export default function WhatsApp() {
               <div style={{ fontSize: "11px", color: "var(--muted)", letterSpacing: "0.08em", marginBottom: "5px" }}>WEBHOOK VERIFY TOKEN</div>
               <input
                 className="input"
-                placeholder="jclaw-verify"
-                value={cfg.verifyToken}
+                placeholder={cfg.verifyToken ? "••••  (saved — enter new to replace)" : "e.g. jclaw-verify"}
+                value={cfg.verifyToken && cfg.verifyToken.includes("…") ? "" : cfg.verifyToken}
                 onChange={(e) => setCfg({ ...cfg, verifyToken: e.target.value })}
               />
+            </div>
+
+            <div>
+              <div style={{ fontSize: "11px", color: "var(--muted)", letterSpacing: "0.08em", marginBottom: "5px" }}>APP SECRET</div>
+              <input
+                className="input"
+                type="password"
+                placeholder={cfg.appSecret ? "••••  (saved — enter new to replace)" : "Meta App Secret for webhook signature verification"}
+                value={rawAppSecret}
+                onChange={(e) => setRawAppSecret(e.target.value)}
+                autoComplete="off"
+              />
+              <div style={{ fontSize: "10px", color: "var(--text3)", marginTop: "3px" }}>
+                Optional — enables <code>X-Hub-Signature-256</code> validation on inbound webhooks
+              </div>
             </div>
 
             <div style={{
@@ -217,20 +238,21 @@ export default function WhatsApp() {
             <div>
               <div style={{ fontSize: "11px", color: "var(--muted)", letterSpacing: "0.08em", marginBottom: "8px" }}>AUTO-REPLY</div>
               <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
-                <div
-                  onClick={() => setCfg({ ...cfg, autoReply: !cfg.autoReply })}
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-checked={cfg.autoReply}
+                  checked={cfg.autoReply}
+                  onChange={(e) => setCfg({ ...cfg, autoReply: e.target.checked })}
                   style={{
                     width: "38px", height: "20px", borderRadius: "10px", flexShrink: 0,
+                    appearance: "none", WebkitAppearance: "none", margin: 0, padding: 0,
+                    border: "none", outline: "none",
                     background: cfg.autoReply ? "var(--green)" : "var(--border)",
-                    position: "relative", cursor: "pointer", transition: "background 0.2s",
+                    cursor: "pointer", transition: "background 0.2s",
+                    boxShadow: cfg.autoReply ? "inset 21px 0 0 3px #fff" : "inset 3px 0 0 3px #fff",
                   }}
-                >
-                  <div style={{
-                    width: "14px", height: "14px", borderRadius: "50%", background: "#fff",
-                    position: "absolute", top: "3px",
-                    left: cfg.autoReply ? "21px" : "3px", transition: "left 0.2s",
-                  }} />
-                </div>
+                />
                 <span style={{ fontSize: "12px", color: cfg.autoReply ? "var(--green)" : "var(--text2)" }}>
                   Forward incoming messages to JCLAW and reply automatically
                 </span>

@@ -42,7 +42,7 @@ import { createAnthropicProvider } from "../providers/anthropic.js";
 import { createOpenAiCompatProvider } from "../providers/openai-compat.js";
 import type { PipeTarget } from "../runtime/pipeline.js";
 import type { ProviderName } from "../providers/types.js";
-import { whatsappMessages } from "./whatsapp-store.js";
+import { whatsappMessages, pushWhatsAppMessage } from "./whatsapp-store.js";
 import { sendWhatsAppText } from "../channels/plugins/whatsapp.js";
 
 // ---------------------------------------------------------------------------
@@ -79,6 +79,8 @@ export interface ProtocolContext {
   sessions: JclawSessionStore;
   plugins: JclawPluginRegistry;
   runtime: ChatRuntime;
+  /** Broadcast a frame to all connected WebSocket clients. */
+  broadcast: (frame: Record<string, unknown>) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -1133,11 +1135,13 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
     case "whatsapp.config.get": {
       const stored = readConfig().whatsapp ?? {};
       const effective = { ...DEFAULT_WHATSAPP, ...stored };
-      // Mask the access token before sending to client
+      // Mask secret tokens before sending to client
       return ok(req.id, {
         config: {
           ...effective,
-          accessToken: maskKey(effective.accessToken) ?? ""
+          accessToken: maskKey(effective.accessToken) ?? "",
+          verifyToken: maskKey(effective.verifyToken) ?? "",
+          appSecret: maskKey(effective.appSecret) ?? ""
         }
       });
     }
@@ -1147,7 +1151,8 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       const current = { ...DEFAULT_WHATSAPP, ...(stored.whatsapp ?? {}) };
       if (typeof p.phoneNumberId === "string") current.phoneNumberId = p.phoneNumberId;
       if (typeof p.accessToken === "string" && !p.accessToken.includes("…")) current.accessToken = p.accessToken;
-      if (typeof p.verifyToken === "string") current.verifyToken = p.verifyToken;
+      if (typeof p.verifyToken === "string" && !p.verifyToken.includes("…")) current.verifyToken = p.verifyToken;
+      if (typeof p.appSecret === "string" && !p.appSecret.includes("…")) current.appSecret = p.appSecret;
       if (p.autoReply !== undefined) current.autoReply = Boolean(p.autoReply);
       if (typeof p.autoReplySessionId === "string") current.autoReplySessionId = p.autoReplySessionId;
       if (typeof p.autoReplyModel === "string") current.autoReplyModel = p.autoReplyModel;
@@ -1178,9 +1183,9 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
         status: result.ok ? ("sent" as const) : ("failed" as const),
         error: result.ok ? undefined : result.error
       };
-      whatsappMessages.unshift(record);
-      if (whatsappMessages.length > 500) whatsappMessages.length = 500;
-      ctx.socket.send(JSON.stringify({ type: "event", event: "whatsapp.message", payload: record }));
+      pushWhatsAppMessage(record);
+      // Broadcast to all connected clients so every open dashboard reflects outbound sends.
+      ctx.broadcast({ type: "event", event: "whatsapp.message", payload: record });
       return ok(req.id, { result, record });
     }
 

@@ -237,11 +237,13 @@ JCLAW integrates with the **Meta WhatsApp Business Cloud API** to send and recei
 2. **Copy your credentials** from *WhatsApp → API Setup*:
    - **Phone Number ID** — a numeric ID tied to your test/production number
    - **System User Access Token** — long-lived token from Meta Business Manager
+   - **App Secret** — found in *App Dashboard → Basic* (used for webhook signature verification)
 
 3. **Configure JCLAW** — open the **WhatsApp** dashboard page and enter:
    - Phone Number ID
    - Access Token
    - Verify Token (any string you choose, e.g. `jclaw-verify`)
+   - App Secret *(optional but recommended — enables `X-Hub-Signature-256` validation on inbound webhooks)*
 
 4. **Register the webhook** in your Meta app under *WhatsApp → Configuration*:
    - **Webhook URL:** `https://<your-host>/webhook/whatsapp`
@@ -256,8 +258,8 @@ JCLAW integrates with the **Meta WhatsApp Business Cloud API** to send and recei
 
 | Method | Description |
 |---|---|
-| `whatsapp.config.get` | Get current config (access token is masked) |
-| `whatsapp.config.set` | Update Phone Number ID, access token, verify token, auto-reply settings |
+| `whatsapp.config.get` | Get current config (access token, verify token, and app secret are masked) |
+| `whatsapp.config.set` | Update Phone Number ID, access token, verify token, app secret, auto-reply settings |
 | `whatsapp.send` | Send a text message to a phone number |
 | `whatsapp.messages.list` | List recent inbound/outbound messages |
 
