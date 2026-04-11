@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { call } from "../ws.ts";
+import { call, onEvent } from "../ws.ts";
 import { Link } from "react-router-dom";
 
 interface Stats {
@@ -39,6 +39,25 @@ interface RedTeamStatus {
   bypassInjectionCheck: boolean;
 }
 
+interface WhatsAppStatus {
+  configured: boolean;
+  phoneNumberId: string;
+  autoReply: boolean;
+}
+
+interface McpStatus {
+  serverCount: number;
+  toolCount: number;
+  connectedCount: number;
+}
+
+interface LiveProcessing {
+  tokensThisSec: number;
+  totalOutputToday: number;
+  lastModel: string | null;
+  lastProvider: string | null;
+}
+
 function fmtNum(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
   if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
@@ -56,6 +75,39 @@ function fmtDate(iso: string): string {
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 }
 
+function FrameworkBadge({ label, active, detail, to, color }: {
+  label: string; active: boolean; detail: string; to: string; color?: string;
+}) {
+  const c = color ?? (active ? "var(--accent)" : "var(--border)");
+  return (
+    <Link to={to} style={{ textDecoration: "none" }}>
+      <div style={{
+        border: `1px solid ${c}`,
+        padding: "12px 14px",
+        background: active ? `color-mix(in srgb, ${c} 8%, transparent)` : "transparent",
+        display: "flex", flexDirection: "column", gap: "4px",
+        transition: "border-color 0.15s",
+        minWidth: "130px",
+        cursor: "pointer",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div style={{
+            width: "7px", height: "7px", borderRadius: "50%",
+            background: active ? c : "var(--border)",
+            boxShadow: active ? `0 0 6px ${c}` : "none",
+            animation: active ? "pulse-dot 2s ease-in-out infinite" : "none",
+            flexShrink: 0,
+          }} />
+          <span style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "0.08em", color: active ? c : "var(--muted)" }}>
+            {label}
+          </span>
+        </div>
+        <div style={{ fontSize: "10px", color: "var(--text3)", paddingLeft: "15px" }}>{detail}</div>
+      </div>
+    </Link>
+  );
+}
+
 export default function Overview() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [providers, setProviders] = useState<ProviderPing[]>([]);
@@ -63,6 +115,10 @@ export default function Overview() {
   const [recentSessions, setRecentSessions] = useState<Session[]>([]);
   const [sandbox, setSandbox] = useState<SandboxStatus | null>(null);
   const [redTeam, setRedTeam] = useState<RedTeamStatus | null>(null);
+  const [whatsapp, setWhatsApp] = useState<WhatsAppStatus | null>(null);
+  const [mcp, setMcp] = useState<McpStatus | null>(null);
+  const [live, setLive] = useState<LiveProcessing>({ tokensThisSec: 0, totalOutputToday: 0, lastModel: null, lastProvider: null });
+  const [recentTokens, setRecentTokens] = useState<{ ts: number }[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -76,15 +132,62 @@ export default function Overview() {
     call<{ redteam: RedTeamStatus }>("redteam.get")
       .then((r) => setRedTeam(r.redteam))
       .catch(() => {});
+    call<{ config: { phoneNumberId: string; accessToken: string; autoReply: boolean } }>("whatsapp.config.get")
+      .then((r) => setWhatsApp({
+        configured: Boolean(r.config.phoneNumberId && r.config.accessToken),
+        phoneNumberId: r.config.phoneNumberId,
+        autoReply: r.config.autoReply,
+      }))
+      .catch(() => {});
+    call<{ servers: Array<{ status: string; tools?: unknown[] }> }>("mcp.servers.list")
+      .then((r) => {
+        const connected = r.servers.filter((s) => s.status === "connected");
+        const toolCount = connected.reduce((acc, s) => acc + (s.tools?.length ?? 0), 0);
+        setMcp({ serverCount: r.servers.length, connectedCount: connected.length, toolCount });
+      })
+      .catch(() => {});
     setPinging(true);
     call<{ providers: ProviderPing[] }>("providers.ping")
       .then((r) => setProviders(r.providers))
       .catch((e: Error) => setError(e.message))
       .finally(() => setPinging(false));
+
+    // Real-time token stream tracking
+    const offEvent = onEvent((event, payload) => {
+      if (event === "chat.token") {
+        const p = payload as { token: string };
+        if ((p.token?.length ?? 0) > 0) {
+          setRecentTokens((prev) => {
+            const now = Date.now();
+            return [...prev.filter((t) => now - t.ts < 5_000), { ts: now }];
+          });
+        }
+      }
+      if (event === "metrics.sample") {
+        const rec = payload as { outputTokens?: number; model?: string; provider?: string };
+        if (rec.outputTokens) {
+          setLive((prev) => ({
+            ...prev,
+            totalOutputToday: prev.totalOutputToday + rec.outputTokens!,
+            lastModel: rec.model ?? prev.lastModel,
+            lastProvider: rec.provider ?? prev.lastProvider,
+          }));
+        }
+      }
+    });
+
+    // Tick to recompute tokens/sec
+    const ticker = setInterval(() => {
+      const now = Date.now();
+      setRecentTokens((prev) => prev.filter((t) => now - t.ts < 5_000));
+    }, 1000);
+
+    return () => { offEvent(); clearInterval(ticker); };
   }, []);
 
   const totalTokens = stats ? stats.totalInputTokens + stats.totalOutputTokens : 0;
   const onlineCount = providers.filter((p) => p.ok).length;
+  const tokensPerSec = (recentTokens.length / 5).toFixed(1);
 
   return (
     <div>
@@ -131,6 +234,36 @@ export default function Overview() {
         </div>
       </div>
 
+      {/* Live processing bar */}
+      <div style={{
+        display: "flex", gap: "10px", flexWrap: "wrap",
+        marginBottom: "28px",
+      }}>
+        {[
+          { label: "TOKENS / SEC", value: tokensPerSec, color: recentTokens.length > 0 ? "var(--green)" : "var(--text3)", pulse: recentTokens.length > 0 },
+          { label: "OUTPUT TODAY", value: fmtNum(live.totalOutputToday), color: "var(--accent2)", pulse: false },
+          { label: "LAST MODEL", value: live.lastModel ?? "—", color: "var(--accent)", pulse: false },
+          { label: "LAST PROVIDER", value: live.lastProvider ?? "—", color: "var(--accent2)", pulse: false },
+        ].map(({ label, value, color, pulse }) => (
+          <div key={label} style={{
+            background: "var(--surface)", border: "1px solid var(--border)",
+            borderTop: `2px solid ${color}`, padding: "8px 16px", flex: "1 1 130px",
+            display: "flex", flexDirection: "column", gap: "3px"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              {pulse && (
+                <div style={{
+                  width: "6px", height: "6px", borderRadius: "50%",
+                  background: color, animation: "pulse-dot 1s ease-in-out infinite", flexShrink: 0
+                }} />
+              )}
+              <div style={{ fontSize: "9px", letterSpacing: "0.15em", color: "var(--text3)", textTransform: "uppercase" }}>{label}</div>
+            </div>
+            <div style={{ fontSize: "16px", fontWeight: 700, color, fontFamily: "var(--font-mono)" }}>{value}</div>
+          </div>
+        ))}
+      </div>
+
       {/* Quick actions */}
       <div className="section-title">Quick Actions</div>
       <div style={{
@@ -146,6 +279,7 @@ export default function Overview() {
           { to: "/sessions", icon: "◷", label: "Sessions", sub: "Browse history" },
           { to: "/sandbox", icon: "⬛", label: "Sandbox", sub: "Prompt controls" },
           { to: "/providers", icon: "⚙", label: "Providers", sub: "Keys & config" },
+          { to: "/whatsapp", icon: "✉", label: "WhatsApp", sub: "Messaging channel" },
         ] as const).map(({ to, icon, label, sub }) => (
           <Link
             key={to}
@@ -311,6 +445,70 @@ export default function Overview() {
             Configure →
           </Link>
         </div>
+      </div>
+
+      {/* Framework Status */}
+      <div className="section-title" style={{ marginTop: "36px" }}>Framework Status</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "10px", marginBottom: "36px" }}>
+        <FrameworkBadge
+          label="Sandbox"
+          active={sandbox?.enabled ?? false}
+          detail={sandbox?.enabled
+            ? (sandbox.injectionProtection ? "Injection guard on" : "Pass-through mode")
+            : "Disabled"}
+          to="/sandbox"
+        />
+        <FrameworkBadge
+          label="Red Team"
+          active={redTeam?.enabled ?? false}
+          detail={redTeam?.enabled ? "Guardrails bypassed" : "Guardrails on"}
+          to="/sandbox"
+          color={redTeam?.enabled ? "#ff4c4c" : undefined}
+        />
+        <FrameworkBadge
+          label="MCP"
+          active={(mcp?.connectedCount ?? 0) > 0}
+          detail={mcp
+            ? `${mcp.connectedCount}/${mcp.serverCount} servers · ${mcp.toolCount} tools`
+            : "Loading…"}
+          to="/mcp"
+          color="var(--accent2)"
+        />
+        <FrameworkBadge
+          label="WhatsApp"
+          active={whatsapp?.configured ?? false}
+          detail={whatsapp?.configured
+            ? (whatsapp.autoReply ? "Auto-reply on" : "Manual send only")
+            : "Not configured"}
+          to="/whatsapp"
+          color="var(--green)"
+        />
+        <FrameworkBadge
+          label="Pipeline"
+          active={false}
+          detail="Clipboard · File · Webhook · Script"
+          to="/chat"
+          color="var(--accent2)"
+        />
+        <FrameworkBadge
+          label="Evals"
+          active={false}
+          detail="Benchmark suites"
+          to="/evals"
+        />
+        <FrameworkBadge
+          label="Fine-Tune"
+          active={false}
+          detail="OpenAI · Groq"
+          to="/finetune"
+        />
+        <FrameworkBadge
+          label="Embeddings"
+          active={false}
+          detail="Semantic search"
+          to="/embed-search"
+          color="var(--accent2)"
+        />
       </div>
 
       {/* Recent sessions */}

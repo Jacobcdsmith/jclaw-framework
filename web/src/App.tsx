@@ -18,6 +18,7 @@ import Datasets from "./pages/Datasets.tsx";
 import FineTune from "./pages/FineTune.tsx";
 import Evals from "./pages/Evals.tsx";
 import EmbedSearch from "./pages/EmbedSearch.tsx";
+import WhatsApp from "./pages/WhatsApp.tsx";
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -95,6 +96,11 @@ export default function App() {
             <span className="nav-icon">⊛</span>Embed Search
           </NavLink>
 
+          <div className="sidebar-section-label" style={{ marginTop: "8px" }}>channels</div>
+          <NavLink to="/whatsapp" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
+            <span className="nav-icon">✉</span>WhatsApp
+          </NavLink>
+
           <div className="sidebar-section-label" style={{ marginTop: "8px" }}>config</div>
           <NavLink to="/providers" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">⚙</span>Providers
@@ -141,6 +147,7 @@ export default function App() {
             <Route path="/finetune" element={<FineTune />} />
             <Route path="/evals" element={<Evals />} />
             <Route path="/embed-search" element={<EmbedSearch />} />
+            <Route path="/whatsapp" element={<WhatsApp />} />
           </Routes>
         </main>
       </div>

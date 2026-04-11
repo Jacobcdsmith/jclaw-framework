@@ -17,6 +17,7 @@ export interface OutboundContext {
 export interface DeliveryResult {
   ok: boolean;
   raw?: unknown;
+  error?: string;
 }
 
 export interface ChannelOutboundAdapter {
