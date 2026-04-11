@@ -1176,7 +1176,7 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
         text,
         timestamp: Date.now(),
         status: result.ok ? ("sent" as const) : ("failed" as const),
-        error: result.ok ? undefined : (result.error as string | undefined)
+        error: result.ok ? undefined : result.error
       };
       whatsappMessages.unshift(record);
       if (whatsappMessages.length > 500) whatsappMessages.length = 500;

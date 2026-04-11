@@ -168,7 +168,7 @@ export default function Overview() {
         if (rec.outputTokens) {
           setLive((prev) => ({
             ...prev,
-            totalOutputToday: prev.totalOutputToday + rec.outputTokens!,
+            totalOutputToday: prev.totalOutputToday + (rec.outputTokens ?? 0),
             lastModel: rec.model ?? prev.lastModel,
             lastProvider: rec.provider ?? prev.lastProvider,
           }));

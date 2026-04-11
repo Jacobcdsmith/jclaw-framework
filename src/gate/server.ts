@@ -71,9 +71,13 @@ export async function startJclawGate(options: JclawGateOptions) {
     const cfg = { ...DEFAULT_WHATSAPP, ...(readConfig().whatsapp ?? {}) };
     const mode = req.query["hub.mode"];
     const token = req.query["hub.verify_token"];
-    const challenge = req.query["hub.challenge"];
-    if (mode === "subscribe" && token === cfg.verifyToken) {
-      res.status(200).send(challenge);
+    const rawChallenge = req.query["hub.challenge"];
+    // Sanitize challenge: Meta sends a numeric string; reject anything else to prevent reflected XSS.
+    const challenge = typeof rawChallenge === "string" && /^\d+$/.test(rawChallenge)
+      ? rawChallenge
+      : "";
+    if (mode === "subscribe" && token === cfg.verifyToken && challenge) {
+      res.status(200).type("text/plain").send(challenge);
     } else {
       res.status(403).send("Forbidden");
     }
