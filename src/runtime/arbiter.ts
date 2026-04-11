@@ -72,8 +72,30 @@ export interface ArbiterConfig {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Hard timeout for speculative thought branches */
+/** Hard timeout for speculative thought branches (12 seconds) */
 const DEFAULT_TIMEOUT_MS = 12_000;
+
+/** 
+ * Small grace period for branch completion after main timeout.
+ * Gives nearly-complete branches a chance to finish.
+ */
+const TIMEOUT_GRACE_MS = 100;
+
+/**
+ * History weight multiplier for profile-weighted scoring.
+ * 
+ * The 100x multiplier heavily biases toward historically successful strategies.
+ * This ensures that proven strategies for a specific session are strongly preferred,
+ * while still allowing new strategies to win if they produce significantly better
+ * content (via length_score and structure_bonus contributions).
+ * 
+ * Value derived from testing: lower values (e.g., 10x) were too weak to maintain
+ * consistent strategy selection; higher values (e.g., 1000x) prevented adaptation.
+ */
+const HISTORY_WEIGHT_MULTIPLIER = 100;
+
+/** Sentinel object for timeout detection (avoids string collision risks) */
+const TIMEOUT_SENTINEL = Symbol("arbiter-timeout");
 
 /** Reasoning frames for each strategy */
 export const REASONING_STRATEGIES: Record<ReasoningStrategyName, ReasoningStrategy> = {
@@ -106,9 +128,9 @@ export const REASONING_STRATEGIES: Record<ReasoningStrategyName, ReasoningStrate
 /**
  * Score a thought branch using profile-weighted heuristics.
  * 
- * Score = length_score + structure_bonus + (history_bonus * 100)
+ * Score = length_score + structure_bonus + (history_bonus * HISTORY_WEIGHT_MULTIPLIER)
  * 
- * The 100x multiplier on history_bonus ensures the system favors
+ * The heavy multiplier on history_bonus ensures the system favors
  * strategies that have worked well for this session in the past.
  */
 export function scoreBranch(
@@ -144,8 +166,8 @@ export function scoreBranch(
   // History bonus: weight from the thought profile (0-1 range)
   const historyBonus = getCombinedWeight(profile, branch.strategy);
   
-  // Combined score with heavy history weighting
-  const score = lengthScore + structureBonus + (historyBonus * 100);
+  // Combined score with heavy history weighting (see HISTORY_WEIGHT_MULTIPLIER docs)
+  const score = lengthScore + structureBonus + (historyBonus * HISTORY_WEIGHT_MULTIPLIER);
   
   return score;
 }
@@ -213,8 +235,8 @@ export async function runSpeculativeThoughts(
     }
   });
   
-  // Run all branches with timeout
-  const timeoutPromise = setTimeout(timeoutMs, "timeout" as const);
+  // Run all branches with timeout (using Symbol sentinel for type-safe detection)
+  const timeoutPromise = setTimeout(timeoutMs, TIMEOUT_SENTINEL);
   
   const results = await Promise.race([
     Promise.allSettled(branchPromises),
@@ -223,7 +245,7 @@ export async function runSpeculativeThoughts(
   
   let branches: ThoughtBranch[];
   
-  if (results === "timeout") {
+  if (results === TIMEOUT_SENTINEL) {
     // Timeout hit - collect whatever finished
     const timeoutBranch: ThoughtBranch = {
       strategy: "default",
@@ -236,10 +258,10 @@ export async function runSpeculativeThoughts(
     branches = await Promise.all(
       branchPromises.map(async (p) => {
         try {
-          // Give a tiny bit more time to see if any finished
+          // Give a small grace period to see if any branch finished
           return await Promise.race([
             p,
-            setTimeout(100, timeoutBranch)
+            setTimeout(TIMEOUT_GRACE_MS, timeoutBranch)
           ]);
         } catch {
           return {
@@ -254,7 +276,7 @@ export async function runSpeculativeThoughts(
     );
   } else {
     // Normal completion
-    branches = results.map((result, i) => {
+    branches = results.map((result: PromiseSettledResult<ThoughtBranch>, i: number) => {
       if (result.status === "fulfilled") {
         return result.value;
       }

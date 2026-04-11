@@ -62,10 +62,24 @@ export interface ThoughtProfile {
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Fast EMA decay rate - high sensitivity to recent outcomes */
+/**
+ * Fast EMA decay rate (α=0.3) - High sensitivity to recent outcomes.
+ * 
+ * This value was chosen because:
+ * - At α=0.3, approximately 95% of the old value is forgotten after ~9 updates
+ * - This allows rapid adaptation to immediate conversational tone changes
+ * - Higher values (e.g., 0.5) would be too volatile, lower (e.g., 0.1) too slow
+ */
 const FAST_ALPHA = 0.3;
 
-/** Slow EMA decay rate - preserves long-term identity */
+/**
+ * Slow EMA decay rate (α=0.05) - Preserves long-term identity.
+ * 
+ * This value was chosen because:
+ * - At α=0.05, approximately 95% of the old value is forgotten after ~59 updates
+ * - This preserves the agent's core reasoning style across many interactions
+ * - Prevents "identity drift" where short-term flukes override proven strategies
+ */
 const SLOW_ALPHA = 0.05;
 
 /** Initial weight for all strategies (normalized to 0.25 each) */
@@ -76,6 +90,14 @@ const WIN_REWARD = 1.0;
 
 /** Decay applied to all strategies on each update (before reward) */
 const DECAY_FACTOR = 0.9;
+
+/** Valid column names for win tracking (whitelist for SQL safety) */
+const VALID_WIN_COLUMNS: Record<ReasoningStrategyName, string> = {
+  analytical: "wins_analytical",
+  concise: "wins_concise",
+  socratic: "wins_socratic",
+  default: "wins_default"
+};
 
 // ---------------------------------------------------------------------------
 // Schema Migration
@@ -177,8 +199,11 @@ export function updateThoughtProfile(
   const normalizedFast = normalizeWeights(newFast);
   const normalizedSlow = normalizeWeights(newSlow);
   
-  // Update win count
-  const winsColumn = `wins_${winningStrategy}`;
+  // Update win count using whitelisted column name (SQL injection safe)
+  const winsColumn = VALID_WIN_COLUMNS[winningStrategy];
+  if (!winsColumn) {
+    throw new Error(`Invalid strategy: ${winningStrategy}`);
+  }
   
   db.prepare(`
     UPDATE thought_profiles SET
