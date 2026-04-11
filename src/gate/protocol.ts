@@ -7,12 +7,14 @@ import type { ChatRuntime, ToolCallStep } from "../runtime/chat.js";
 import {
   sendMessage,
   sendMessageStream,
+  sendMessageSpeculative,
   forkAndSend,
   regenerateMessage,
   compareModels,
   summarizeSession,
   getContextStatus,
-  startSession
+  startSession,
+  getThoughtProfile
 } from "../runtime/chat.js";
 import { getSessionMessages, pinMessage, rateMessage, searchMessages, exportSession } from "../storage/messages.js";
 import {
@@ -42,6 +44,11 @@ import { createAnthropicProvider } from "../providers/anthropic.js";
 import { createOpenAiCompatProvider } from "../providers/openai-compat.js";
 import type { PipeTarget } from "../runtime/pipeline.js";
 import type { ProviderName } from "../providers/types.js";
+import {
+  resetThoughtProfile,
+  type ReasoningStrategyName
+} from "../storage/thought-profile.js";
+import { getAvailableStrategies } from "../runtime/arbiter.js";
 
 // ---------------------------------------------------------------------------
 // Frame types
@@ -385,6 +392,124 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       return ok(req.id, { summaryMessage: summaryMsg });
     }
 
+    // ── speculative thought ───────────────────────────────────────────────────
+    case "chat.speculative": {
+      const sessionId = requireStr(req.id, p.sessionId, "sessionId");
+      if (typeof sessionId !== "string") return sessionId;
+      const content = requireStr(req.id, p.content, "content");
+      if (typeof content !== "string") return content;
+
+      const _sendStart = Date.now();
+      const _costBefore = dbGetSession(sessionId)?.estimated_cost_usd ?? 0;
+      let result;
+      try {
+        result = await sendMessageSpeculative(ctx.runtime, {
+          sessionId,
+          content,
+          role: (p.role as "user" | "assistant") ?? "user",
+          modelSpec: str(p.modelSpec),
+          temperature: num(p.temperature),
+          maxTokens: num(p.maxTokens),
+          systemPromptOverride: str(p.systemPromptOverride),
+          pipeTargets: p.pipeTargets as PipeTarget[] | undefined,
+          timeoutMs: num(p.timeoutMs),
+          forceReflexMode: Boolean(p.forceReflexMode),
+          strategies: Array.isArray(p.strategies)
+            ? (p.strategies as unknown[]).map(String) as ReasoningStrategyName[]
+            : undefined
+        });
+
+        // Emit branch events for dashboard visualization
+        for (const branch of result.arbiter.branches) {
+          ctx.socket.send(JSON.stringify({
+            type: "event",
+            event: "speculative.branch",
+            payload: {
+              sessionId,
+              strategy: branch.strategy,
+              latencyMs: branch.latencyMs,
+              score: branch.score,
+              hasResponse: branch.response !== null,
+              error: branch.error
+            }
+          }));
+        }
+
+        // Emit winner event
+        ctx.socket.send(JSON.stringify({
+          type: "event",
+          event: "speculative.winner",
+          payload: {
+            sessionId,
+            winningStrategy: result.arbiter.winner.strategy,
+            totalLatencyMs: result.arbiter.totalLatencyMs,
+            reflexMode: result.arbiter.reflexMode,
+            branchCount: result.arbiter.branches.length
+          }
+        }));
+      } catch (e) {
+        const _totalMs = Date.now() - _sendStart;
+        const rec = recordMetric({
+          provider: str(p.modelSpec)?.split(":")?.[0] ?? "unknown",
+          model: str(p.modelSpec) ?? "unknown",
+          sessionId, startedAt: _sendStart, ttftMs: null, totalMs: _totalMs,
+          inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0,
+          errorCode: (e instanceof Error ? e.message : String(e)).slice(0, 100)
+        });
+        ctx.socket.send(JSON.stringify({ type: "event", event: "metrics.sample", payload: rec }));
+        throw e;
+      }
+
+      const _totalMs = Date.now() - _sendStart;
+      const _am = result.assistantMessage;
+      const _costAfter = dbGetSession(sessionId)?.estimated_cost_usd ?? 0;
+      const rec = recordMetric({
+        provider: _am.provider ?? "unknown", model: _am.model ?? "unknown",
+        sessionId, startedAt: _sendStart, ttftMs: _totalMs, totalMs: _totalMs,
+        inputTokens: _am.input_tokens ?? 0, outputTokens: _am.output_tokens ?? 0,
+        estimatedCostUsd: Math.max(0, _costAfter - _costBefore)
+      });
+      ctx.socket.send(JSON.stringify({ type: "event", event: "metrics.sample", payload: rec }));
+
+      return ok(req.id, {
+        userMessage: result.userMessage,
+        assistantMessage: result.assistantMessage,
+        arbiter: {
+          winningStrategy: result.arbiter.winner.strategy,
+          winningScore: result.arbiter.winner.score,
+          totalLatencyMs: result.arbiter.totalLatencyMs,
+          reflexMode: result.arbiter.reflexMode,
+          branches: result.arbiter.branches.map(b => ({
+            strategy: b.strategy,
+            latencyMs: b.latencyMs,
+            score: b.score,
+            error: b.error
+          })),
+          profile: result.arbiter.profile
+        },
+        pipeResults: result.pipeResults
+      });
+    }
+
+    case "chat.thoughtProfile": {
+      const sessionId = requireStr(req.id, p.sessionId, "sessionId");
+      if (typeof sessionId !== "string") return sessionId;
+      const profile = getThoughtProfile(sessionId);
+      return ok(req.id, { profile });
+    }
+
+    case "chat.resetProfile": {
+      const sessionId = requireStr(req.id, p.sessionId, "sessionId");
+      if (typeof sessionId !== "string") return sessionId;
+      resetThoughtProfile(sessionId);
+      const profile = getThoughtProfile(sessionId);
+      return ok(req.id, { profile, reset: true });
+    }
+
+    case "chat.strategies": {
+      return ok(req.id, { strategies: getAvailableStrategies() });
+    }
+
     // ── providers ─────────────────────────────────────────────────────────────
     case "providers.list":
       return ok(req.id, {
@@ -643,7 +768,7 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       const probeStart = Date.now();
       let probeTtft: number | null = null;
       const probeSession = startSession({
-        name: `probe-${Date.now()}`,
+        label: `probe-${Date.now()}`,
         provider: providerName as ProviderName,
         model: modelSpec ?? undefined
       });

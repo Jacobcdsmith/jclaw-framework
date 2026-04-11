@@ -622,3 +622,164 @@ export function getContextStatus(sessionId: string, model: string) {
 export function startSession(params: CreateSessionParams = {}): SessionRow {
   return createSession(params);
 }
+
+// ---------------------------------------------------------------------------
+// Speculative Thought Branching
+// ---------------------------------------------------------------------------
+
+import {
+  runSpeculativeThoughts,
+  shouldEnterReflexMode,
+  type ArbiterResult,
+  type ArbiterConfig
+} from "./arbiter.js";
+import {
+  getOrCreateThoughtProfile,
+  type ThoughtProfile,
+  type ReasoningStrategyName
+} from "../storage/thought-profile.js";
+
+export interface SpeculativeParams extends SendParams {
+  /** Override arbiter timeout (default: 12000ms) */
+  timeoutMs?: number;
+  /** Force reflex mode (single best strategy) */
+  forceReflexMode?: boolean;
+  /** Specific strategies to use (default: all four) */
+  strategies?: ReasoningStrategyName[];
+}
+
+export interface SpeculativeResult {
+  userMessage: MessageRow;
+  assistantMessage: MessageRow;
+  /** Detailed arbiter results including all branches */
+  arbiter: ArbiterResult;
+  pipeResults?: PipeResult[];
+}
+
+/**
+ * Send a message using speculative thought branching.
+ * 
+ * Runs multiple reasoning strategies concurrently and selects the best
+ * response based on profile-weighted scoring. Falls back to single-pass
+ * when in reflex mode or on error.
+ */
+export async function sendMessageSpeculative(
+  rt: ChatRuntime,
+  params: SpeculativeParams
+): Promise<SpeculativeResult> {
+  const session = getSession(params.sessionId);
+  if (!session) throw new Error(`Session not found: ${params.sessionId}`);
+
+  // Sandbox + red team config (same as sendMessage)
+  const sandbox = getEffectiveSandbox();
+  const redTeam = getEffectiveRedTeam();
+  const skipInjection = redTeam.enabled && redTeam.bypassInjectionCheck;
+  if (sandbox.enabled && sandbox.injectionProtection && !skipInjection && (params.role ?? "user") === "user") {
+    checkInjection(params.content, sandbox.blockedPhrases ?? []);
+  }
+
+  // Cost ceiling check
+  if (session.cost_ceiling_usd !== null) {
+    if (session.estimated_cost_usd >= session.cost_ceiling_usd) {
+      throw new Error(
+        `Cost ceiling reached: $${session.estimated_cost_usd.toFixed(4)} >= $${session.cost_ceiling_usd.toFixed(4)}`
+      );
+    }
+  }
+
+  const { provider, model } = resolveProvider(rt, session, params.modelSpec);
+
+  const history = getSessionMessages(params.sessionId);
+
+  // Add user message first
+  const userMessage = addMessage({
+    session_id: params.sessionId,
+    role: params.role ?? "user",
+    content: params.content,
+    temperature: params.temperature
+  });
+
+  // Build base request
+  const req = buildChatRequest(session, history, {
+    content: params.content,
+    role: params.role ?? "user",
+    temperature: params.temperature,
+    maxTokens: params.maxTokens,
+    systemPromptOverride: sandbox.enabled && !sandbox.allowSystemPromptOverride
+      ? undefined
+      : params.systemPromptOverride
+  });
+  req.model = model;
+  if (sandbox.enabled) applySandboxToRequest(req, sandbox, session.system_prompt ?? undefined);
+  if (redTeam.enabled) applyRedTeamToRequest(req, redTeam, params.systemPromptOverride);
+
+  // Determine if we should use reflex mode
+  const useReflexMode = params.forceReflexMode ?? shouldEnterReflexMode();
+
+  // Run speculative thought branching
+  const arbiterConfig: ArbiterConfig = {
+    timeoutMs: params.timeoutMs,
+    reflexMode: useReflexMode,
+    strategies: params.strategies
+  };
+
+  const arbiterResult = await runSpeculativeThoughts(
+    provider,
+    req,
+    params.sessionId,
+    arbiterConfig
+  );
+
+  // Handle arbiter failure
+  if (!arbiterResult.winner.response) {
+    throw new Error(arbiterResult.winner.error ?? "Speculative thought failed: no successful branches");
+  }
+
+  const resp = arbiterResult.winner.response;
+
+  // Accumulate tokens from all branches (not just winner)
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+  let totalCost = 0;
+
+  for (const branch of arbiterResult.branches) {
+    if (branch.response) {
+      totalInputTokens += branch.response.inputTokens;
+      totalOutputTokens += branch.response.outputTokens;
+      totalCost += branch.response.estimatedCostUsd;
+    }
+  }
+
+  accumulateTokens(params.sessionId, totalInputTokens, totalOutputTokens, totalCost);
+
+  // Store assistant message (from winning branch)
+  const assistantMessage = addMessage({
+    session_id: params.sessionId,
+    role: "assistant",
+    content: resp.content,
+    model: resp.model,
+    provider: resp.provider,
+    input_tokens: resp.inputTokens,
+    output_tokens: resp.outputTokens,
+    temperature: params.temperature,
+    finish_reason: resp.finishReason
+  });
+
+  const pipeResults = params.pipeTargets?.length
+    ? await pipeOutput(resp.content, params.pipeTargets)
+    : undefined;
+
+  return {
+    userMessage,
+    assistantMessage,
+    arbiter: arbiterResult,
+    pipeResults
+  };
+}
+
+/**
+ * Get the thought profile for a session.
+ */
+export function getThoughtProfile(sessionId: string): ThoughtProfile {
+  return getOrCreateThoughtProfile(sessionId);
+}
