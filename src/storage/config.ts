@@ -48,6 +48,33 @@ export const DEFAULT_REDTEAM: RedTeamConfig = {
   unlimitedContext: false,
 };
 
+export interface WhatsAppConfig {
+  /** Meta WhatsApp Cloud API phone number ID */
+  phoneNumberId: string;
+  /** Meta system user access token */
+  accessToken: string;
+  /** Webhook verify token (any string you choose in Meta app settings) */
+  verifyToken: string;
+  /** Meta App Secret — used to verify X-Hub-Signature-256 on inbound webhooks */
+  appSecret?: string;
+  /** Auto-reply: if true, incoming messages are forwarded to a JCLAW session and the reply is sent back */
+  autoReply: boolean;
+  /** Session ID to use for auto-replies (omit to create a new session per conversation) */
+  autoReplySessionId?: string;
+  /** Model spec string for auto-replies e.g. "anthropic:claude-sonnet-4-6" */
+  autoReplyModel?: string;
+}
+
+export const DEFAULT_WHATSAPP: WhatsAppConfig = {
+  phoneNumberId: "",
+  accessToken: "",
+  verifyToken: "jclaw-verify",
+  appSecret: undefined,
+  autoReply: false,
+  autoReplySessionId: undefined,
+  autoReplyModel: undefined,
+};
+
 export interface JclawConfig {
   providers?: ProviderConfig;
   mcp?: {
@@ -55,6 +82,7 @@ export interface JclawConfig {
   };
   sandbox?: Partial<SandboxConfig>;
   redteam?: Partial<RedTeamConfig>;
+  whatsapp?: Partial<WhatsAppConfig>;
 }
 
 export function readConfig(): JclawConfig {

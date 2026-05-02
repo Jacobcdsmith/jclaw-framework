@@ -36,12 +36,14 @@ import {
   getTemplateByName,
   deleteTemplate
 } from "../storage/templates.js";
-import { readConfig, writeConfig, mergeWithEnv, maskKey, DEFAULT_SANDBOX, DEFAULT_REDTEAM } from "../storage/config.js";
+import { readConfig, writeConfig, mergeWithEnv, maskKey, DEFAULT_SANDBOX, DEFAULT_REDTEAM, DEFAULT_WHATSAPP } from "../storage/config.js";
 import { recordMetric, listMetrics, getStabilitySummary } from "../storage/metrics.js";
 import { createAnthropicProvider } from "../providers/anthropic.js";
 import { createOpenAiCompatProvider } from "../providers/openai-compat.js";
 import type { PipeTarget } from "../runtime/pipeline.js";
 import type { ProviderName } from "../providers/types.js";
+import { whatsappMessages, pushWhatsAppMessage } from "./whatsapp-store.js";
+import { sendWhatsAppText } from "../channels/plugins/whatsapp.js";
 
 // ---------------------------------------------------------------------------
 // Frame types
@@ -77,6 +79,8 @@ export interface ProtocolContext {
   sessions: JclawSessionStore;
   plugins: JclawPluginRegistry;
   runtime: ChatRuntime;
+  /** Broadcast a frame to all connected WebSocket clients. */
+  broadcast: (frame: Record<string, unknown>) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -1125,6 +1129,69 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
     case "context.limits": {
       const { DEFAULT_CONTEXT_LIMITS } = await import("../runtime/composer.js");
       return ok(req.id, { limits: DEFAULT_CONTEXT_LIMITS });
+    }
+
+    // ── whatsapp ──────────────────────────────────────────────────────────────
+    case "whatsapp.config.get": {
+      const stored = readConfig().whatsapp ?? {};
+      const effective = { ...DEFAULT_WHATSAPP, ...stored };
+      // Mask secret tokens before sending to client
+      return ok(req.id, {
+        config: {
+          ...effective,
+          accessToken: maskKey(effective.accessToken) ?? "",
+          verifyToken: maskKey(effective.verifyToken) ?? "",
+          appSecret: maskKey(effective.appSecret) ?? ""
+        }
+      });
+    }
+
+    case "whatsapp.config.set": {
+      const stored = readConfig();
+      const current = { ...DEFAULT_WHATSAPP, ...(stored.whatsapp ?? {}) };
+      if (typeof p.phoneNumberId === "string") current.phoneNumberId = p.phoneNumberId;
+      if (typeof p.accessToken === "string" && !p.accessToken.includes("…")) current.accessToken = p.accessToken;
+      if (typeof p.verifyToken === "string" && !p.verifyToken.includes("…")) current.verifyToken = p.verifyToken;
+      if (typeof p.appSecret === "string" && !p.appSecret.includes("…")) current.appSecret = p.appSecret;
+      if (p.autoReply !== undefined) current.autoReply = Boolean(p.autoReply);
+      if (typeof p.autoReplySessionId === "string") current.autoReplySessionId = p.autoReplySessionId;
+      if (typeof p.autoReplyModel === "string") current.autoReplyModel = p.autoReplyModel;
+      writeConfig({ ...stored, whatsapp: current });
+      return ok(req.id, { saved: true });
+    }
+
+    case "whatsapp.send": {
+      const to = requireStr(req.id, p.to, "to");
+      if (typeof to !== "string") return to;
+      const text = requireStr(req.id, p.text, "text");
+      if (typeof text !== "string") return text;
+      const cfg = { ...DEFAULT_WHATSAPP, ...(readConfig().whatsapp ?? {}) };
+      if (!cfg.phoneNumberId || !cfg.accessToken) {
+        return err(req.id, "WhatsApp not configured — set phoneNumberId and accessToken first");
+      }
+      const result = await sendWhatsAppText(to, text, {
+        phoneNumberId: cfg.phoneNumberId,
+        accessToken: cfg.accessToken
+      });
+      const record = {
+        id: `out-${Date.now().toString(36)}`,
+        from: cfg.phoneNumberId,
+        to,
+        direction: "outbound" as const,
+        text,
+        timestamp: Date.now(),
+        status: result.ok ? ("sent" as const) : ("failed" as const),
+        error: result.ok ? undefined : result.error
+      };
+      pushWhatsAppMessage(record);
+      // Broadcast to all connected clients so every open dashboard reflects outbound sends.
+      ctx.broadcast({ type: "event", event: "whatsapp.message", payload: record });
+      return ok(req.id, { result, record });
+    }
+
+    case "whatsapp.messages.list": {
+      const limit = (typeof p.limit === "number" ? p.limit : 100);
+      return ok(req.id, { messages: whatsappMessages.slice(0, limit) });
     }
 
     // ── legacy ────────────────────────────────────────────────────────────────
