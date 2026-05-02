@@ -647,7 +647,7 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
       const probeStart = Date.now();
       let probeTtft: number | null = null;
       const probeSession = startSession({
-        name: `probe-${Date.now()}`,
+        label: `probe-${Date.now()}`,
         provider: providerName as ProviderName,
         model: modelSpec ?? undefined
       });

@@ -96,14 +96,14 @@ export async function startJclawGate(options: JclawGateOptions) {
   app.post("/webhook/whatsapp", express.json({
     verify: (req, _res, buf) => {
       // Stash the raw body buffer for signature verification below.
-      (req as Record<string, unknown>).rawBody = buf;
+      (req as unknown as Record<string, unknown>).rawBody = buf;
     }
   }), (req, res) => {
     // ── Signature verification ─────────────────────────────────────────────
     const cfg = { ...DEFAULT_WHATSAPP, ...(readConfig().whatsapp ?? {}) };
     if (cfg.appSecret) {
       const sigHeader = req.headers["x-hub-signature-256"];
-      const rawBody = (req as Record<string, unknown>).rawBody as Buffer | undefined;
+      const rawBody = (req as unknown as Record<string, unknown>).rawBody as Buffer | undefined;
       if (!sigHeader || !rawBody) {
         res.status(403).send("Forbidden");
         return;
