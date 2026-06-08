@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { call, onEvent } from "../ws.ts";
+import { useEffect, useState, useCallback } from "react";
+import { call, onEvent, onStatus } from "../ws.ts";
 import { Link } from "react-router-dom";
 
 interface Stats {
@@ -121,7 +121,8 @@ export default function Overview() {
   const [recentTokens, setRecentTokens] = useState<{ ts: number }[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
+    setError(null);
     call<Stats>("sessions.stats").then(setStats).catch((e: Error) => setError(e.message));
     call<{ sessions: Session[] }>("sessions.list", { limit: 5 })
       .then((r) => setRecentSessions(r.sessions))
@@ -164,6 +165,15 @@ export default function Overview() {
       );
       setLive((prev) => ({ ...prev, totalOutputToday: todayTotal }));
     }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+
+    // Re-fetch whenever the gate reconnects
+    const offStatus = onStatus((connected) => {
+      if (connected) fetchData();
+    });
 
     // Real-time token stream tracking
     const offEvent = onEvent((event, payload) => {
@@ -195,8 +205,8 @@ export default function Overview() {
       setRecentTokens((prev) => prev.filter((t) => now - t.ts < 5_000));
     }, 1000);
 
-    return () => { offEvent(); clearInterval(ticker); };
-  }, []);
+    return () => { offStatus(); offEvent(); clearInterval(ticker); };
+  }, [fetchData]);
 
   const totalTokens = stats ? stats.totalInputTokens + stats.totalOutputTokens : 0;
   const onlineCount = providers.filter((p) => p.ok).length;
