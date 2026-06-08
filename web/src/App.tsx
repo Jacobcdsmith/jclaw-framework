@@ -7,6 +7,7 @@ import SessionDetail from "./pages/SessionDetail.tsx";
 import Prompts from "./pages/Prompts.tsx";
 import Templates from "./pages/Templates.tsx";
 import Providers from "./pages/Providers.tsx";
+import Gateway from "./pages/Gateway.tsx";
 import Search from "./pages/Search.tsx";
 import Chat from "./pages/Chat.tsx";
 import Terminal from "./pages/Terminal.tsx";
@@ -102,6 +103,9 @@ export default function App() {
           </NavLink>
 
           <div className="sidebar-section-label" style={{ marginTop: "8px" }}>config</div>
+          <NavLink to="/gateway" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
+            <span className="nav-icon">⬡</span>Gateway
+          </NavLink>
           <NavLink to="/providers" className={({ isActive }) => "nav-item" + (isActive ? " active" : "")} onClick={closeSidebar}>
             <span className="nav-icon">⚙</span>Providers
           </NavLink>
@@ -139,6 +143,7 @@ export default function App() {
             <Route path="/terminal" element={<Terminal />} />
             <Route path="/activity" element={<Activity />} />
             <Route path="/providers" element={<Providers />} />
+            <Route path="/gateway" element={<Gateway />} />
             <Route path="/sandbox" element={<Sandbox />} />
             <Route path="/mcp" element={<Mcp />} />
             <Route path="/search" element={<Search />} />

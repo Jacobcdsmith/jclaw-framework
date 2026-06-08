@@ -23,6 +23,9 @@ const ALIASES: Record<string, { method: string; params?: Record<string, unknown>
   "prompts.list": { method: "prompts.list" },
   templates: { method: "templates.list" },
   "templates.list": { method: "templates.list" },
+  gateway: { method: "gate.status" },
+  "gate.status": { method: "gate.status" },
+  "gate.info": { method: "gate.status" },
 };
 
 const HELP_TEXT = `JCLAW TERMINAL — available commands:
@@ -37,6 +40,9 @@ const HELP_TEXT = `JCLAW TERMINAL — available commands:
   stats                 aggregate session stats
   prompts               list saved prompts
   templates             list saved templates
+  gateway               gate server status (uptime, port, clients)
+  gate.status           gate server status (uptime, port, clients)
+  gate.info             gate server info (alias for gate.status)
   clear                 clear this terminal
   help                  show this message
 
