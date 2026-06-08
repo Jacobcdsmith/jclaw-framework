@@ -33,6 +33,8 @@ function scheduleReconnect() {
   reconnectAttempt += 1;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
+    // Errors are expected while the server is unavailable; scheduleReconnect will be
+    // called again via onclose if the attempt fails.
     connect().catch(() => { });
   }, delay);
 }
@@ -50,7 +52,7 @@ function connect(): Promise<WebSocket> {
       resolve(socket);
     };
 
-    socket.onclose = () => {
+    socket.onclose = (ev) => {
       ws = null;
       connectPromise = null;
       notifyStatus(false);
@@ -58,7 +60,10 @@ function connect(): Promise<WebSocket> {
         r(new Error("WebSocket closed"));
       }
       pending.clear();
-      scheduleReconnect();
+      // 1000 = normal closure, 1001 = going away (page unload) — no reconnect needed.
+      if (ev.code !== 1000 && ev.code !== 1001) {
+        scheduleReconnect();
+      }
     };
 
     socket.onerror = () => {

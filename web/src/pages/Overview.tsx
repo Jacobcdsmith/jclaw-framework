@@ -122,6 +122,8 @@ export default function Overview() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(() => {
+    // Clear any prior error so the UI reflects the freshest attempt.
+    // Individual call failures below will set a new error if they occur.
     setError(null);
     call<Stats>("sessions.stats").then(setStats).catch((e: Error) => setError(e.message));
     call<{ sessions: Session[] }>("sessions.list", { limit: 5 })
