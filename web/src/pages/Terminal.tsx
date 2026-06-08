@@ -25,7 +25,7 @@ const ALIASES: Record<string, { method: string; params?: Record<string, unknown>
   "templates.list": { method: "templates.list" },
   gateway: { method: "gate.status" },
   "gate.status": { method: "gate.status" },
-  "gate.clients": { method: "gate.status" },
+  "gate.info": { method: "gate.status" },
 };
 
 const HELP_TEXT = `JCLAW TERMINAL — available commands:
@@ -42,7 +42,7 @@ const HELP_TEXT = `JCLAW TERMINAL — available commands:
   templates             list saved templates
   gateway               gate server status (uptime, port, clients)
   gate.status           gate server status (uptime, port, clients)
-  gate.clients          connected client count
+  gate.info             gate server info (alias for gate.status)
   clear                 clear this terminal
   help                  show this message
 

@@ -217,7 +217,7 @@ export default function Gateway() {
                 color: p.ok ? "var(--green)" : "var(--muted)",
               }}>
                 {p.ok
-                  ? `online — ${p.latencyMs}ms`
+                  ? `online — ${p.latencyMs ?? "N/A"}ms`
                   : `offline${p.error ? ` — ${p.error}` : ""}`}
               </span>
             </div>
