@@ -81,7 +81,13 @@ export interface ProtocolContext {
   runtime: ChatRuntime;
   /** Broadcast a frame to all connected WebSocket clients. */
   broadcast: (frame: Record<string, unknown>) => void;
+  /** Returns the current number of connected WebSocket clients. */
+  getClientCount: () => number;
+  /** The TCP port the gate server is listening on. */
+  serverPort: number;
 }
+
+const SERVER_START_TIME = Date.now();
 
 // ---------------------------------------------------------------------------
 // Router
@@ -1192,6 +1198,20 @@ async function handleRequest(ctx: ProtocolContext, req: RequestFrameT): Promise<
     case "whatsapp.messages.list": {
       const limit = (typeof p.limit === "number" ? p.limit : 100);
       return ok(req.id, { messages: whatsappMessages.slice(0, limit) });
+    }
+
+    // ── gate ──────────────────────────────────────────────────────────────────
+    case "gate.status": {
+      const uptimeSec = (Date.now() - SERVER_START_TIME) / 1000;
+      return ok(req.id, {
+        uptime: uptimeSec,
+        port: ctx.serverPort,
+        connectedClients: ctx.getClientCount(),
+        pid: process.pid,
+        nodeVersion: process.version,
+        platform: process.platform,
+        startedAt: SERVER_START_TIME,
+      });
     }
 
     // ── legacy ────────────────────────────────────────────────────────────────

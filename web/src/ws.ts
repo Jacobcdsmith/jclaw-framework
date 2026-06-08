@@ -5,6 +5,9 @@ type StatusHandler = (connected: boolean) => void;
 let ws: WebSocket | null = null;
 let connectPromise: Promise<WebSocket> | null = null;
 let isConnected = false;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectAttempt = 0;
+const MAX_RECONNECT_DELAY_MS = 30_000;
 const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
 const eventHandlers = new Set<EventHandler>();
 const rawHandlers = new Set<RawFrameHandler>();
@@ -24,6 +27,18 @@ function notifyStatus(connected: boolean) {
   for (const h of statusHandlers) h(connected);
 }
 
+function scheduleReconnect() {
+  if (reconnectTimer !== null) return;
+  const delay = Math.min(1_000 * 2 ** reconnectAttempt, MAX_RECONNECT_DELAY_MS);
+  reconnectAttempt += 1;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    // Errors are expected while the server is unavailable; scheduleReconnect will be
+    // called again via onclose if the attempt fails.
+    connect().catch(() => { });
+  }, delay);
+}
+
 function connect(): Promise<WebSocket> {
   if (connectPromise) return connectPromise;
 
@@ -32,11 +47,12 @@ function connect(): Promise<WebSocket> {
 
     socket.onopen = () => {
       ws = socket;
+      reconnectAttempt = 0;
       notifyStatus(true);
       resolve(socket);
     };
 
-    socket.onclose = () => {
+    socket.onclose = (ev) => {
       ws = null;
       connectPromise = null;
       notifyStatus(false);
@@ -44,11 +60,15 @@ function connect(): Promise<WebSocket> {
         r(new Error("WebSocket closed"));
       }
       pending.clear();
+      // 1000 = normal closure, 1001 = going away (page unload) — no reconnect needed.
+      if (ev.code !== 1000 && ev.code !== 1001) {
+        scheduleReconnect();
+      }
     };
 
-    socket.onerror = (e) => {
+    socket.onerror = () => {
       connectPromise = null;
-      reject(new Error("WebSocket error: " + String(e)));
+      reject(new Error("Could not connect to gate server"));
     };
 
     socket.onmessage = (ev) => {

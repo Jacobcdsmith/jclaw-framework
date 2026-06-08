@@ -60,7 +60,11 @@ export async function startJclawGate(options: JclawGateOptions) {
   }
 
   wss.on("connection", (socket) => {
-    handleWsConnection({ socket, sessions, plugins, runtime, broadcast });
+    handleWsConnection({
+      socket, sessions, plugins, runtime, broadcast,
+      getClientCount: () => wss.clients.size,
+      serverPort: options.port,
+    });
   });
 
   app.get("/health", (_req, res) => {
